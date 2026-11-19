@@ -14,13 +14,145 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      family_invites: {
+        Row: {
+          code: string
+          email: string | null
+          expires_at: string
+          household_id: string
+          id: string
+          role: string
+        }
+        Insert: {
+          code?: string
+          email?: string | null
+          expires_at?: string
+          household_id: string
+          id?: string
+          role: string
+        }
+        Update: {
+          code?: string
+          email?: string | null
+          expires_at?: string
+          household_id?: string
+          id?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "family_invites_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      households: {
+        Row: {
+          code: string
+          id: string
+          name: string
+          state: Json
+          version: number
+        }
+        Insert: {
+          code?: string
+          id?: string
+          name: string
+          state?: Json
+          version?: number
+        }
+        Update: {
+          code?: string
+          id?: string
+          name?: string
+          state?: Json
+          version?: number
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar: string
+          id: string
+          name: string
+          preferences: Json
+        }
+        Insert: {
+          avatar?: string
+          id: string
+          name?: string
+          preferences?: Json
+        }
+        Update: {
+          avatar?: string
+          id?: string
+          name?: string
+          preferences?: Json
+        }
+        Relationships: []
+      }
+      push_devices: {
+        Row: {
+          token: string
+          user_id: string
+        }
+        Insert: {
+          token: string
+          user_id: string
+        }
+        Update: {
+          token?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          household_id: string
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          household_id: string
+          id?: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          household_id?: string
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_roles_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      family_action: { Args: { action: string; payload: Json }; Returns: Json }
+      family_invite: {
+        Args: { invite_email?: string; invite_role: string }
+        Returns: string
+      }
+      family_member: { Args: { h: string }; Returns: boolean }
+      family_setup: {
+        Args: { family_name?: string; join_code?: string }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never

@@ -28,3 +28,10 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Family app architecture
+- Store all money as integer pence; formatting is presentation-only to avoid rounding errors.
+- Household membership roles live separately from profiles; database functions authorize and atomically apply chore approvals and payments.
+- Public home is an interactive sample household; real household data is only loaded under the authenticated dashboard.
+- Family state uses an atomic household JSON document with a row lock; clients refresh it after actions and every 15 seconds.
+- Installability is manifest-only; the dedicated Firebase worker handles alerts without caching the app shell.
