@@ -664,6 +664,114 @@ h3 {
   font-size: 11px;
   font-weight: 700;
 }
+.chore-cat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  border: 1px solid transparent;
+  line-height: 1.35;
+}
+.chore-cat-pill.cat-self_care,
+.cat-filter-chip.cat-self_care.active,
+.cat-pick-btn.cat-self_care.active {
+  background: oklch(0.95 0.045 305);
+  color: oklch(0.45 0.18 305);
+  border-color: oklch(0.82 0.1 305);
+}
+.chore-cat-pill.cat-house_care,
+.cat-filter-chip.cat-house_care.active,
+.cat-pick-btn.cat-house_care.active {
+  background: oklch(0.95 0.055 48);
+  color: oklch(0.5 0.17 38);
+  border-color: oklch(0.83 0.11 45);
+}
+.chore-cat-pill.cat-eco_pets_outdoors,
+.cat-filter-chip.cat-eco_pets_outdoors.active,
+.cat-pick-btn.cat-eco_pets_outdoors.active {
+  background: oklch(0.95 0.055 150);
+  color: oklch(0.4 0.14 150);
+  border-color: oklch(0.8 0.11 150);
+}
+.chore-cat-pill.cat-learning_family,
+.cat-filter-chip.cat-learning_family.active,
+.cat-pick-btn.cat-learning_family.active {
+  background: oklch(0.95 0.045 208);
+  color: oklch(0.42 0.13 212);
+  border-color: oklch(0.8 0.1 210);
+}
+.cat-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.cat-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.14s;
+}
+.cat-filter-chip:hover {
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+}
+.cat-filter-chip.active:not([class*="cat-self_care"]):not([class*="cat-house_care"]):not(
+    [class*="cat-eco_pets_outdoors"]
+  ):not([class*="cat-learning_family"]) {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+.cat-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.cat-pick-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.14s;
+}
+.cat-pick-btn strong {
+  font-size: 12px;
+  font-weight: 700;
+}
+.idea-library-list {
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 2px;
+}
+.idea-card {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+}
+.idea-card:hover {
+  border-color: color-mix(in oklch, var(--primary) 40%, var(--border));
+}
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -2568,7 +2676,8 @@ progress::-webkit-progress-value {
   .cta-banner-inner {
     padding: 26px 20px;
   }
-  .mode-toggle-grid {
+  .mode-toggle-grid,
+  .cat-picker-grid {
     grid-template-columns: 1fr;
   }
 }

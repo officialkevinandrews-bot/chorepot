@@ -35,6 +35,8 @@ import {
   Lock,
   Tablet,
   Smartphone,
+  Sparkles,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,6 +54,10 @@ import { executeFamilyAction, resolveProofUrl, uploadOrEncodePhotoProof } from "
 import { enablePush } from "./push";
 import {
   CHILD_THEMES,
+  CHORE_CATEGORIES,
+  STARTER_CHORES,
+  getChoreCategoryInfo,
+  resolveChoreCategory,
   isRunningInApk,
   money,
   balance,
@@ -68,11 +74,13 @@ import {
   choreScheduledDaysCount,
   choreWeeklyMax,
   type ChildThemeColor,
+  type ChoreCategory,
   type Family,
   type Chore,
   type ChoreFrequency,
   type ChoreRewardMode,
   type Goal,
+  type StarterChoreTemplate,
 } from "./model";
 
 const navigation = [
@@ -98,6 +106,54 @@ const choreEmojis = [
   "🎹",
   "🎒",
   "🧸",
+  "👕",
+  "🖥️",
+  "🥪",
+  "🛌",
+  "✨",
+  "👞",
+  "🗑️",
+  "📦",
+  "🚿",
+  "🪮",
+  "👟",
+  "🫧",
+  "🥣",
+  "🧤",
+  "🪜",
+  "🪣",
+  "🪶",
+  "🪞",
+  "🛋️",
+  "🧥",
+  "👚",
+  "🧦",
+  "🚪",
+  "💡",
+  "🌿",
+  "📬",
+  "🛍️",
+  "🍎",
+  "🛴",
+  "🌻",
+  "🌱",
+  "🚗",
+  "🚲",
+  "⚽",
+  "🔢",
+  "📖",
+  "✏️",
+  "🥕",
+  "🥞",
+  "🤝",
+  "🧩",
+  "📱",
+  "💌",
+  "📝",
+  "🧁",
+  "💻",
+  "🏊",
+  "📞",
 ];
 
 const goalEmojis = ["🧱", "🎨", "🎮", "🚲", "🧸", "⚽", "🎧", "📚", "🛹"];
@@ -156,7 +212,16 @@ export function Dashboard({
   const [mobile, setMobile] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
 
-  // Chore form state
+  // Chore filter & form state
+  const [categoryFilter, setCategoryFilter] = useState<"all" | ChoreCategory>("all");
+  const [choreModalTab, setChoreModalTab] = useState<"form" | "library">("form");
+  const [libraryCategory, setLibraryCategory] = useState<"all" | ChoreCategory>("all");
+  const [librarySearch, setLibrarySearch] = useState("");
+  const [choreTitleState, setChoreTitleState] = useState("");
+  const [choreDescState, setChoreDescState] = useState("");
+  const [choreChildIdState, setChoreChildIdState] = useState("");
+  const [choreEmojiState, setChoreEmojiState] = useState("🧹");
+  const [choreCategoryState, setChoreCategoryState] = useState<ChoreCategory>("self_care");
   const [choreFrequency, setChoreFrequency] = useState<ChoreFrequency>("weekly");
   const [choreDays, setChoreDays] = useState<number[]>([today()]);
   const [choreRewardModeState, setChoreRewardModeState] = useState<ChoreRewardMode>("per_day");
@@ -184,7 +249,11 @@ export function Dashboard({
   const filtered = data.state.chores.filter((c) =>
     isChild ? c.childId === activeChild : child === "all" || c.childId === child,
   );
+  const categoryFiltered = filtered.filter(
+    (c) => categoryFilter === "all" || resolveChoreCategory(c) === categoryFilter,
+  );
   const todays = filtered.filter((c) => isChoreScheduledOnDay(c, day));
+  const todaysByCategory = categoryFiltered.filter((c) => isChoreScheduledOnDay(c, day));
   const total = children.reduce((sum, m) => sum + balance(data.state, m.id), 0);
   const completed = (isChild ? filtered : data.state.chores).filter(
     (c) => c.status === "approved",
@@ -333,12 +402,26 @@ export function Dashboard({
       setNewChildEmail("");
       setNewChildWithCode(true);
     } else if (kind === "chore") {
+      setChoreModalTab("form");
+      setLibraryCategory("all");
+      setLibrarySearch("");
+      setChoreTitleState("");
+      setChoreDescState("");
+      setChoreChildIdState(children[0]?.id ?? "");
+      setChoreEmojiState("🧹");
+      setChoreCategoryState(categoryFilter === "all" ? "self_care" : categoryFilter);
       setChoreFrequency("weekly");
       setChoreDays([today()]);
       setChoreRewardModeState("per_day");
       setChoreValueStr("1.00");
       setChoreRequirePhoto(false);
     } else if (kind === "edit_chore" && item && "value" in item) {
+      setChoreModalTab("form");
+      setChoreTitleState(item.title);
+      setChoreDescState(item.description ?? "");
+      setChoreChildIdState(item.childId);
+      setChoreEmojiState(item.emoji);
+      setChoreCategoryState(resolveChoreCategory(item));
       setChoreFrequency(item.frequency ?? "weekly");
       setChoreDays(item.days && item.days.length > 0 ? item.days : [item.day ?? today()]);
       setChoreRewardModeState(item.rewardMode === "all_days" ? "all_days" : "per_day");
@@ -352,6 +435,19 @@ export function Dashboard({
     }
 
     setModal(kind);
+  }
+
+  function applyChoreTemplate(tpl: StarterChoreTemplate) {
+    setChoreTitleState(tpl.title);
+    setChoreDescState(tpl.description);
+    setChoreEmojiState(tpl.emoji);
+    setChoreCategoryState(tpl.choreCategory);
+    setChoreFrequency(tpl.frequency);
+    setChoreDays(tpl.days.length > 0 ? tpl.days : [tpl.day]);
+    setChoreRewardModeState(tpl.rewardMode ?? "per_day");
+    setChoreValueStr((tpl.value / 100).toFixed(2));
+    setChoreRequirePhoto(tpl.requirePhoto);
+    setChoreModalTab("form");
   }
 
   function toggleChoreDay(dayIndex: number) {
@@ -406,29 +502,34 @@ export function Dashboard({
 
       if (modal === "chore") {
         await act("create_chore", {
-          title: value("title"),
-          description: value("description"),
-          childId: value("childId"),
+          title: choreTitleState,
+          description: choreDescState,
+          childId: choreChildIdState || children[0]?.id || "",
           value: pence,
           day: selectedDays[0] ?? 0,
           days: selectedDays,
           frequency: choreFrequency,
+          choreCategory: choreCategoryState,
           rewardMode: resolvedRewardMode,
-          emoji: value("emoji"),
+          emoji: choreEmojiState,
           requirePhoto: choreRequirePhoto,
         });
       } else if (selected && "value" in selected) {
         await act("edit_chore", {
           id: selected.id,
-          title: selected.status === "pending" ? selected.title : value("title"),
-          description: value("description"),
-          childId: selected.status === "pending" ? selected.childId : value("childId"),
+          title: selected.status === "pending" ? selected.title : choreTitleState,
+          description: choreDescState,
+          childId:
+            selected.status === "pending"
+              ? selected.childId
+              : choreChildIdState || children[0]?.id || selected.childId,
           value: selected.status === "pending" ? selected.value : pence,
           day: selectedDays[0] ?? 0,
           days: selectedDays,
           frequency: choreFrequency,
+          choreCategory: choreCategoryState,
           rewardMode: resolvedRewardMode,
-          emoji: value("emoji"),
+          emoji: choreEmojiState,
           requirePhoto: choreRequirePhoto,
         });
       }
@@ -626,6 +727,7 @@ export function Dashboard({
     const totalDays = choreScheduledDaysCount(c);
     const mode = choreRewardMode(c);
     const doneDays = (c.completedDays ?? []).length;
+    const catInfo = getChoreCategoryInfo(resolveChoreCategory(c));
     return (
       <div className="chore-row" key={c.id}>
         <div className="chore-emoji">{c.emoji}</div>
@@ -635,6 +737,9 @@ export function Dashboard({
             <div className="mt-0.5 text-xs text-muted-foreground">{c.description}</div>
           )}
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className={`chore-cat-pill cat-${catInfo.id}`}>
+              {catInfo.emoji} {catInfo.shortLabel}
+            </span>
             {!isChild && (
               <span>
                 {m?.avatar} {m?.name}
@@ -1069,47 +1174,59 @@ export function Dashboard({
                           <CheckCheck /> All caught up. Great teamwork!
                         </div>
                       ) : (
-                        pending.map((c) => (
-                          <div className="approval-card" key={c.id}>
-                            <div className="approval-main">
-                              <div className="chore-emoji">{c.emoji}</div>
-                              <div className="flex-1">
-                                <strong>{c.title}</strong>
-                                <div className="approval-detail">
-                                  {member(c.childId)?.avatar} {member(c.childId)?.name}
-                                  <span>·</span> Ready for review {c.proof && <Camera size={13} />}
-                                  {choreScheduledDaysCount(c) > 1 &&
-                                    choreRewardMode(c) === "all_days" && (
-                                      <span>
-                                        · Day {(c.completedDays?.length ?? 0) + 1} of{" "}
-                                        {choreScheduledDaysCount(c)}
-                                      </span>
-                                    )}
+                        pending.map((c) => {
+                          const catInfo = getChoreCategoryInfo(resolveChoreCategory(c));
+                          return (
+                            <div className="approval-card" key={c.id}>
+                              <div className="approval-main">
+                                <div className="chore-emoji">{c.emoji}</div>
+                                <div className="flex-1">
+                                  <strong>{c.title}</strong>
+                                  <div className="approval-detail">
+                                    <span className={`chore-cat-pill cat-${catInfo.id}`}>
+                                      {catInfo.emoji} {catInfo.shortLabel}
+                                    </span>
+                                    <span>·</span>
+                                    {member(c.childId)?.avatar} {member(c.childId)?.name}
+                                    <span>·</span> Ready for review{" "}
+                                    {c.proof && <Camera size={13} />}
+                                    {choreScheduledDaysCount(c) > 1 &&
+                                      choreRewardMode(c) === "all_days" && (
+                                        <span>
+                                          · Day {(c.completedDays?.length ?? 0) + 1} of{" "}
+                                          {choreScheduledDaysCount(c)}
+                                        </span>
+                                      )}
+                                  </div>
+                                </div>
+                                <span className="money-tag">{money(c.value)}</span>
+                              </div>
+                              <div className="approval-actions">
+                                <Button variant="ghost" size="sm" onClick={() => open("review", c)}>
+                                  <Camera /> {c.proof ? "View photo proof" : "Review chore"}
+                                </Button>
+                                <div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => open("reject", c)}
+                                  >
+                                    <X />
+                                    Not quite
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    disabled={busy}
+                                    onClick={() => act("approve", { id: c.id })}
+                                  >
+                                    <Check />
+                                    Approve
+                                  </Button>
                                 </div>
                               </div>
-                              <span className="money-tag">{money(c.value)}</span>
                             </div>
-                            <div className="approval-actions">
-                              <Button variant="ghost" size="sm" onClick={() => open("review", c)}>
-                                <Camera /> {c.proof ? "View photo proof" : "Review chore"}
-                              </Button>
-                              <div>
-                                <Button variant="ghost" size="sm" onClick={() => open("reject", c)}>
-                                  <X />
-                                  Not quite
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  disabled={busy}
-                                  onClick={() => act("approve", { id: c.id })}
-                                >
-                                  <Check />
-                                  Approve
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       )}
                     </section>
                   )}
@@ -1311,6 +1428,28 @@ export function Dashboard({
                   )}
                 </div>
               </div>
+              <div className="cat-filter-bar mb-4" aria-label="Filter by chore type">
+                <button
+                  type="button"
+                  className={`cat-filter-chip ${categoryFilter === "all" ? "active" : ""}`}
+                  onClick={() => setCategoryFilter("all")}
+                >
+                  All types ({filtered.length})
+                </button>
+                {CHORE_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    className={`cat-filter-chip cat-${cat.id} ${
+                      categoryFilter === cat.id ? "active" : ""
+                    }`}
+                    onClick={() => setCategoryFilter(cat.id)}
+                  >
+                    {cat.emoji} {cat.shortLabel} (
+                    {filtered.filter((c) => resolveChoreCategory(c) === cat.id).length})
+                  </button>
+                ))}
+              </div>
               {view === "Weekly schedule" && (
                 <div className="week-tabs">
                   {days.map((d, i) => (
@@ -1320,13 +1459,15 @@ export function Dashboard({
                       onClick={() => setDay(i)}
                     >
                       {d}
-                      <small>{filtered.filter((c) => isChoreScheduledOnDay(c, i)).length}</small>
+                      <small>
+                        {categoryFiltered.filter((c) => isChoreScheduledOnDay(c, i)).length}
+                      </small>
                     </Button>
                   ))}
                 </div>
               )}
-              {(view === "Chores" ? filtered : todays).map(choreRow)}
-              {(view === "Chores" ? filtered : todays).length === 0 && (
+              {(view === "Chores" ? categoryFiltered : todaysByCategory).map(choreRow)}
+              {(view === "Chores" ? categoryFiltered : todaysByCategory).length === 0 && (
                 <div className="empty-state">
                   Your chore board is ready for its first little mission.
                 </div>
@@ -1781,243 +1922,394 @@ export function Dashboard({
 
             {(modal === "chore" || modal === "edit_chore") && (
               <>
-                {modal === "edit_chore" &&
-                  selected &&
-                  "status" in selected &&
-                  selected.status === "pending" && (
-                    <p className="text-xs text-muted-foreground">
-                      Title, assignee, and reward can’t be changed while waiting for approval.
-                    </p>
-                  )}
-                <label>
-                  Chore name
-                  <Input
-                    name="title"
-                    defaultValue={
-                      modal === "edit_chore" && selected && "title" in selected
-                        ? selected.title
-                        : ""
-                    }
-                    disabled={
-                      modal === "edit_chore" &&
-                      selected !== null &&
-                      "status" in selected &&
-                      selected.status === "pending"
-                    }
-                    placeholder="e.g. Tidy your bedroom"
-                    required
-                    maxLength={100}
-                  />
-                </label>
-                <label>
-                  Notes / instructions (optional)
-                  <Input
-                    name="description"
-                    defaultValue={
-                      modal === "edit_chore" && selected && "description" in selected
-                        ? (selected.description ?? "")
-                        : ""
-                    }
-                    placeholder="e.g. Put books back on the shelf"
-                    maxLength={200}
-                  />
-                </label>
-                <div className="form-pair">
-                  <label>
-                    Little helper
-                    <select
-                      name="childId"
-                      defaultValue={
-                        modal === "edit_chore" && selected && "childId" in selected
-                          ? selected.childId
-                          : children[0]?.id
-                      }
-                      disabled={
-                        modal === "edit_chore" &&
-                        selected !== null &&
-                        "status" in selected &&
-                        selected.status === "pending"
-                      }
-                      required
+                {modal === "chore" && (
+                  <div className="mode-toggle-grid" role="tablist" aria-label="Chore creation mode">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={choreModalTab === "form"}
+                      className={`mode-card ${choreModalTab === "form" ? "active" : ""}`}
+                      onClick={() => setChoreModalTab("form")}
                     >
-                      {children.map((m) => (
-                        <option value={m.id} key={m.id}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Chore icon
-                    <select
-                      name="emoji"
-                      defaultValue={
-                        modal === "edit_chore" && selected && "emoji" in selected
-                          ? selected.emoji
-                          : "🧹"
-                      }
+                      <Pencil size={16} />
+                      <div>
+                        <strong>Custom chore</strong>
+                        <span>Create from scratch or tweak details</span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={choreModalTab === "library"}
+                      className={`mode-card ${choreModalTab === "library" ? "active" : ""}`}
+                      onClick={() => setChoreModalTab("library")}
                     >
-                      {choreEmojis.map((x) => (
-                        <option key={x}>{x}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
+                      <Sparkles size={16} />
+                      <div>
+                        <strong>Browse chore ideas ({STARTER_CHORES.length})</strong>
+                        <span>Flats, houses, pets & life skills</span>
+                      </div>
+                    </button>
+                  </div>
+                )}
 
-                <label>
-                  Schedule frequency
-                  <select
-                    value={choreFrequency}
-                    onChange={(e) => setChoreFrequency(e.target.value as ChoreFrequency)}
-                  >
-                    <option value="weekly">Weekly on selected day(s)</option>
-                    <option value="daily">Every day (Mon–Sun)</option>
-                    <option value="once">One-off / Bonus chore</option>
-                  </select>
-                </label>
-
-                {choreFrequency === "weekly" && (
-                  <div>
-                    <span className="field-label">Days of the week</span>
-                    <div className="day-picker">
-                      {days.map((d, idx) => (
+                {modal === "chore" && choreModalTab === "library" ? (
+                  <>
+                    <div className="relative">
+                      <Search
+                        size={15}
+                        className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
+                      />
+                      <Input
+                        className="pl-9"
+                        placeholder="Search chore ideas (e.g. flat, recycling, reading, bed...)"
+                        value={librarySearch}
+                        onChange={(e) => setLibrarySearch(e.target.value)}
+                      />
+                    </div>
+                    <div className="cat-filter-bar">
+                      <button
+                        type="button"
+                        className={`cat-filter-chip ${libraryCategory === "all" ? "active" : ""}`}
+                        onClick={() => setLibraryCategory("all")}
+                      >
+                        All ({STARTER_CHORES.length})
+                      </button>
+                      {CHORE_CATEGORIES.map((cat) => (
                         <button
-                          key={d}
+                          key={cat.id}
                           type="button"
-                          className={`day-chip ${choreDays.includes(idx) ? "active" : ""}`}
-                          onClick={() => toggleChoreDay(idx)}
+                          className={`cat-filter-chip cat-${cat.id} ${
+                            libraryCategory === cat.id ? "active" : ""
+                          }`}
+                          onClick={() => setLibraryCategory(cat.id)}
                         >
-                          {d}
+                          {cat.emoji} {cat.shortLabel}
                         </button>
                       ))}
                     </div>
-                  </div>
-                )}
-
-                {choreFrequency === "once" && (
-                  <label>
-                    Day for this bonus chore
-                    <select name="singleDay" defaultValue={choreDays[0] ?? today()}>
-                      {fullDays.map((d, idx) => (
-                        <option key={d} value={idx}>
-                          {d}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-
-                <div>
-                  <label>
-                    Reward (£)
-                    <Input
-                      name="value"
-                      type="number"
-                      min="0"
-                      max="1000"
-                      step="0.01"
-                      value={choreValueStr}
-                      disabled={
-                        modal === "edit_chore" &&
-                        selected !== null &&
-                        "status" in selected &&
-                        selected.status === "pending"
-                      }
-                      onChange={(e) => setChoreValueStr(e.target.value)}
-                      required
-                    />
-                  </label>
-                  <div className="preset-row mt-2">
-                    {rewardPresets.map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        className="preset-chip"
-                        disabled={
-                          modal === "edit_chore" &&
-                          selected !== null &&
-                          "status" in selected &&
-                          selected.status === "pending"
+                    <div className="idea-library-list">
+                      {STARTER_CHORES.filter((tpl) => {
+                        if (libraryCategory !== "all" && tpl.choreCategory !== libraryCategory) {
+                          return false;
                         }
-                        onClick={() => setChoreValueStr((p / 100).toFixed(2))}
-                      >
-                        {money(p)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {isMultiDayForm && (
-                  <div>
-                    <span className="field-label">How is this reward paid?</span>
-                    <div className="mode-toggle-grid">
-                      <button
-                        type="button"
-                        disabled={
-                          modal === "edit_chore" &&
-                          selected !== null &&
-                          "status" in selected &&
-                          selected.status === "pending"
-                        }
-                        className={`mode-card ${choreRewardModeState === "per_day" ? "active" : ""}`}
-                        onClick={() => setChoreRewardModeState("per_day")}
-                      >
-                        <div>
-                          <strong>Paid each day it’s done</strong>
-                          <span>
-                            {money(formRewardPreviewPence)} per day ·{" "}
-                            {money(formRewardPreviewPence * formScheduledDaysCount)}/week max
-                          </span>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={
-                          modal === "edit_chore" &&
-                          selected !== null &&
-                          "status" in selected &&
-                          selected.status === "pending"
-                        }
-                        className={`mode-card ${choreRewardModeState === "all_days" ? "active" : ""}`}
-                        onClick={() => setChoreRewardModeState("all_days")}
-                      >
-                        <div>
-                          <strong>Single payment when all days are done</strong>
-                          <span>
-                            Complete all {formScheduledDaysCount} days to earn{" "}
-                            {money(formRewardPreviewPence)} total
-                          </span>
-                        </div>
-                      </button>
+                        const q = librarySearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          tpl.title.toLowerCase().includes(q) ||
+                          tpl.description.toLowerCase().includes(q) ||
+                          tpl.category.toLowerCase().includes(q)
+                        );
+                      }).map((tpl) => {
+                        const catInfo = getChoreCategoryInfo(tpl.choreCategory);
+                        const tplDaysCount =
+                          tpl.frequency === "daily"
+                            ? 7
+                            : tpl.frequency === "once"
+                              ? 1
+                              : tpl.days.length;
+                        const tplSchedule =
+                          tpl.frequency === "daily"
+                            ? "Every day"
+                            : tpl.frequency === "once"
+                              ? "One-off bonus"
+                              : tplDaysCount > 1
+                                ? `${tpl.days.map((d) => days[d]).join(", ")}`
+                                : `Weekly · ${days[tpl.day] ?? "Mon"}`;
+                        return (
+                          <div className="idea-card" key={tpl.key}>
+                            <div className="flex items-start gap-2.5">
+                              <span className="text-2xl leading-none">{tpl.emoji}</span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <strong className="text-sm">{tpl.title}</strong>
+                                  <span className={`chore-cat-pill cat-${catInfo.id}`}>
+                                    {catInfo.emoji} {catInfo.shortLabel}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {tpl.description}
+                                </p>
+                                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-muted-foreground">
+                                  <span>{tplSchedule}</span>
+                                  <span>·</span>
+                                  <span className="text-primary">
+                                    {tplDaysCount > 1 && tpl.rewardMode === "all_days"
+                                      ? `${money(tpl.value)} (all ${tplDaysCount} days)`
+                                      : tplDaysCount > 1
+                                        ? `${money(tpl.value)}/day`
+                                        : money(tpl.value)}
+                                  </span>
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => applyChoreTemplate(tpl)}
+                              >
+                                Use idea
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                )}
+                  </>
+                ) : (
+                  <>
+                    {modal === "edit_chore" &&
+                      selected &&
+                      "status" in selected &&
+                      selected.status === "pending" && (
+                        <p className="text-xs text-muted-foreground">
+                          Title, assignee, and reward can’t be changed while waiting for approval.
+                        </p>
+                      )}
+                    <div>
+                      <span className="field-label">Chore type</span>
+                      <div className="cat-picker-grid">
+                        {CHORE_CATEGORIES.map((cat) => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            className={`cat-pick-btn cat-${cat.id} ${
+                              choreCategoryState === cat.id ? "active" : ""
+                            }`}
+                            onClick={() => setChoreCategoryState(cat.id)}
+                          >
+                            <span>{cat.emoji}</span>
+                            <strong>{cat.shortLabel}</strong>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <label>
+                      Chore name
+                      <Input
+                        name="title"
+                        value={choreTitleState}
+                        onChange={(e) => setChoreTitleState(e.target.value)}
+                        disabled={
+                          modal === "edit_chore" &&
+                          selected !== null &&
+                          "status" in selected &&
+                          selected.status === "pending"
+                        }
+                        placeholder="e.g. Tidy your bedroom"
+                        required
+                        maxLength={100}
+                      />
+                    </label>
+                    <label>
+                      Notes / instructions (optional)
+                      <Input
+                        name="description"
+                        value={choreDescState}
+                        onChange={(e) => setChoreDescState(e.target.value)}
+                        placeholder="e.g. Put books back on the shelf"
+                        maxLength={200}
+                      />
+                    </label>
+                    <div className="form-pair">
+                      <label>
+                        Little helper
+                        <select
+                          name="childId"
+                          value={choreChildIdState}
+                          onChange={(e) => setChoreChildIdState(e.target.value)}
+                          disabled={
+                            modal === "edit_chore" &&
+                            selected !== null &&
+                            "status" in selected &&
+                            selected.status === "pending"
+                          }
+                          required
+                        >
+                          {children.map((m) => (
+                            <option value={m.id} key={m.id}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Chore icon
+                        <select
+                          name="emoji"
+                          value={choreEmojiState}
+                          onChange={(e) => setChoreEmojiState(e.target.value)}
+                        >
+                          {(choreEmojis.includes(choreEmojiState)
+                            ? choreEmojis
+                            : [choreEmojiState, ...choreEmojis]
+                          ).map((x) => (
+                            <option key={x}>{x}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
 
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={choreRequirePhoto}
-                    onChange={(e) => setChoreRequirePhoto(e.target.checked)}
-                  />
-                  Require photo proof when marking done
-                </label>
+                    <label>
+                      Schedule frequency
+                      <select
+                        value={choreFrequency}
+                        onChange={(e) => setChoreFrequency(e.target.value as ChoreFrequency)}
+                      >
+                        <option value="weekly">Weekly on selected day(s)</option>
+                        <option value="daily">Every day (Mon–Sun)</option>
+                        <option value="once">One-off / Bonus chore</option>
+                      </select>
+                    </label>
 
-                {!children.length && (
-                  <p className="text-destructive text-sm">
-                    Add a child in Our family before creating chores.
-                  </p>
+                    {choreFrequency === "weekly" && (
+                      <div>
+                        <span className="field-label">Days of the week</span>
+                        <div className="day-picker">
+                          {days.map((d, idx) => (
+                            <button
+                              key={d}
+                              type="button"
+                              className={`day-chip ${choreDays.includes(idx) ? "active" : ""}`}
+                              onClick={() => toggleChoreDay(idx)}
+                            >
+                              {d}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {choreFrequency === "once" && (
+                      <label>
+                        Day for this bonus chore
+                        <select
+                          name="singleDay"
+                          value={choreDays[0] ?? today()}
+                          onChange={(e) => setChoreDays([Number(e.target.value)])}
+                        >
+                          {fullDays.map((d, idx) => (
+                            <option key={d} value={idx}>
+                              {d}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+
+                    <div>
+                      <label>
+                        Reward (£)
+                        <Input
+                          name="value"
+                          type="number"
+                          min="0"
+                          max="1000"
+                          step="0.01"
+                          value={choreValueStr}
+                          disabled={
+                            modal === "edit_chore" &&
+                            selected !== null &&
+                            "status" in selected &&
+                            selected.status === "pending"
+                          }
+                          onChange={(e) => setChoreValueStr(e.target.value)}
+                          required
+                        />
+                      </label>
+                      <div className="preset-row mt-2">
+                        {rewardPresets.map((p) => (
+                          <button
+                            key={p}
+                            type="button"
+                            className="preset-chip"
+                            disabled={
+                              modal === "edit_chore" &&
+                              selected !== null &&
+                              "status" in selected &&
+                              selected.status === "pending"
+                            }
+                            onClick={() => setChoreValueStr((p / 100).toFixed(2))}
+                          >
+                            {money(p)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {isMultiDayForm && (
+                      <div>
+                        <span className="field-label">How is this reward paid?</span>
+                        <div className="mode-toggle-grid">
+                          <button
+                            type="button"
+                            disabled={
+                              modal === "edit_chore" &&
+                              selected !== null &&
+                              "status" in selected &&
+                              selected.status === "pending"
+                            }
+                            className={`mode-card ${choreRewardModeState === "per_day" ? "active" : ""}`}
+                            onClick={() => setChoreRewardModeState("per_day")}
+                          >
+                            <div>
+                              <strong>Paid each day it’s done</strong>
+                              <span>
+                                {money(formRewardPreviewPence)} per day ·{" "}
+                                {money(formRewardPreviewPence * formScheduledDaysCount)}/week max
+                              </span>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              modal === "edit_chore" &&
+                              selected !== null &&
+                              "status" in selected &&
+                              selected.status === "pending"
+                            }
+                            className={`mode-card ${choreRewardModeState === "all_days" ? "active" : ""}`}
+                            onClick={() => setChoreRewardModeState("all_days")}
+                          >
+                            <div>
+                              <strong>Single payment when all days are done</strong>
+                              <span>
+                                Complete all {formScheduledDaysCount} days to earn{" "}
+                                {money(formRewardPreviewPence)} total
+                              </span>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={choreRequirePhoto}
+                        onChange={(e) => setChoreRequirePhoto(e.target.checked)}
+                      />
+                      Require photo proof when marking done
+                    </label>
+
+                    {!children.length && (
+                      <p className="text-destructive text-sm">
+                        Add a child in Our family before creating chores.
+                      </p>
+                    )}
+                    <Button disabled={busy || !children.length}>
+                      {modal === "edit_chore" ? (
+                        <>
+                          <Check /> Save changes
+                        </>
+                      ) : (
+                        <>
+                          <Plus /> Create chore
+                        </>
+                      )}
+                    </Button>
+                  </>
                 )}
-                <Button disabled={busy || !children.length}>
-                  {modal === "edit_chore" ? (
-                    <>
-                      <Check /> Save changes
-                    </>
-                  ) : (
-                    <>
-                      <Plus /> Create chore
-                    </>
-                  )}
-                </Button>
               </>
             )}
 

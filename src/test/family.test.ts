@@ -13,6 +13,9 @@ import {
   choreScheduledDaysCount,
   choreWeeklyMax,
   STARTER_CHORES,
+  CHORE_CATEGORIES,
+  resolveChoreCategory,
+  getChoreCategoryInfo,
   CHILD_THEMES,
   isChildThemeColor,
   isRunningInApk,
@@ -182,18 +185,58 @@ describe("Payday schedule & weekly summary", () => {
   });
 });
 
-describe("Starter chores & managed child templates", () => {
-  it("provides 12 curated starter chores across 4 categories", () => {
-    expect(STARTER_CHORES).toHaveLength(12);
-    const categories = new Set(STARTER_CHORES.map((c) => c.category));
+describe("Starter chores & 4 colour-coded chore categories", () => {
+  it("provides 80 curated starter chores across 4 categories including flat-friendly chores", () => {
+    expect(CHORE_CATEGORIES.map((c) => c.id)).toEqual([
+      "self_care",
+      "house_care",
+      "eco_pets_outdoors",
+      "learning_family",
+    ]);
+    expect(STARTER_CHORES.length).toBeGreaterThanOrEqual(75);
+    const categories = new Set(STARTER_CHORES.map((c) => c.choreCategory));
     expect(categories.size).toBe(4);
     expect(STARTER_CHORES.some((c) => c.defaultSelected)).toBe(true);
+    expect(
+      STARTER_CHORES.some(
+        (c) => c.choreCategory === "eco_pets_outdoors" && c.key === "energy-detective",
+      ),
+    ).toBe(true);
     for (const item of STARTER_CHORES) {
       expect(item.value).toBeGreaterThan(0);
       expect(item.day).toBeGreaterThanOrEqual(0);
       expect(item.day).toBeLessThanOrEqual(6);
       expect(item.days.length).toBeGreaterThan(0);
+      expect(getChoreCategoryInfo(item.choreCategory).label).toBe(item.category);
     }
+  });
+
+  it("supports creating/editing chore categories and infers fallback categories", () => {
+    let s = demoAction(demo.state, "create_chore", {
+      title: "Sort recycling plastics",
+      childId: "oliver",
+      day: 2,
+      days: [2],
+      frequency: "weekly",
+      choreCategory: "eco_pets_outdoors",
+      value: 50,
+      emoji: "♻️",
+    });
+    const created = s.chores.find((c) => c.title === "Sort recycling plastics");
+    expect(created?.choreCategory).toBe("eco_pets_outdoors");
+
+    s = demoAction(s, "edit_chore", {
+      id: created!.id,
+      choreCategory: "house_care",
+    });
+    expect(s.chores.find((c) => c.id === created!.id)?.choreCategory).toBe("house_care");
+
+    expect(resolveChoreCategory({ title: "Complete Maths homework" })).toBe("learning_family");
+    expect(resolveChoreCategory({ title: "Hoover the hallway" })).toBe("house_care");
+    expect(resolveChoreCategory({ title: "Energy Detective lights check" })).toBe(
+      "eco_pets_outdoors",
+    );
+    expect(resolveChoreCategory({ title: "Make your bed" })).toBe("self_care");
   });
 });
 

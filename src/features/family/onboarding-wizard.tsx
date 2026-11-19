@@ -25,11 +25,13 @@ import { Input } from "@/components/ui/input";
 import { executeFamilyAction, fetchAuthenticatedFamily } from "./family-client";
 import {
   CHILD_THEMES,
+  CHORE_CATEGORIES,
   STARTER_CHORES,
   days,
   fullDays,
   money,
   type ChildThemeColor,
+  type ChoreCategory,
   type Family,
   type ManagedChild,
   type PendingInvite,
@@ -89,6 +91,7 @@ export function OnboardingWizard({
   const [coParentEmail, setCoParentEmail] = useState("");
 
   // Step 4: Starter Chores
+  const [starterCategoryFilter, setStarterCategoryFilter] = useState<"all" | ChoreCategory>("all");
   const [starterMap, setStarterMap] = useState<Record<string, StarterSelection>>(() => {
     const init: Record<string, StarterSelection> = {};
     for (const item of STARTER_CHORES) {
@@ -333,6 +336,8 @@ export function OnboardingWizard({
             emoji: template.emoji,
             value: pence,
             frequency: template.frequency,
+            choreCategory: template.choreCategory,
+            rewardMode: template.rewardMode ?? "per_day",
             day: template.day,
             days: template.days,
             requirePhoto: template.requirePhoto,
@@ -363,7 +368,10 @@ export function OnboardingWizard({
 
   const origin = typeof window === "undefined" ? "https://chorepot.app" : window.location.origin;
 
-  const categories = Array.from(new Set(STARTER_CHORES.map((c) => c.category)));
+  const visibleCategories =
+    starterCategoryFilter === "all"
+      ? CHORE_CATEGORIES
+      : CHORE_CATEGORIES.filter((c) => c.id === starterCategoryFilter);
 
   if (!activeFamily && entryMode === "join") {
     return (
@@ -830,11 +838,37 @@ export function OnboardingWizard({
                 </span>
               </div>
 
+              <div className="cat-filter-bar mb-2">
+                <button
+                  type="button"
+                  className={`cat-filter-chip ${starterCategoryFilter === "all" ? "active" : ""}`}
+                  onClick={() => setStarterCategoryFilter("all")}
+                >
+                  All ({STARTER_CHORES.length})
+                </button>
+                {CHORE_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    className={`cat-filter-chip cat-${cat.id} ${
+                      starterCategoryFilter === cat.id ? "active" : ""
+                    }`}
+                    onClick={() => setStarterCategoryFilter(cat.id)}
+                  >
+                    {cat.emoji} {cat.shortLabel}
+                  </button>
+                ))}
+              </div>
+
               <div className="starter-scroll">
-                {categories.map((cat) => (
-                  <div key={cat} className="starter-group">
-                    <div className="starter-cat">{cat}</div>
-                    {STARTER_CHORES.filter((c) => c.category === cat).map((tpl) => {
+                {visibleCategories.map((cat) => (
+                  <div key={cat.id} className="starter-group">
+                    <div className="starter-cat">
+                      <span className={`chore-cat-pill cat-${cat.id}`}>
+                        {cat.emoji} {cat.label}
+                      </span>
+                    </div>
+                    {STARTER_CHORES.filter((c) => c.choreCategory === cat.id).map((tpl) => {
                       const sel = starterMap[tpl.key] ?? {
                         selected: false,
                         valueStr: (tpl.value / 100).toFixed(2),

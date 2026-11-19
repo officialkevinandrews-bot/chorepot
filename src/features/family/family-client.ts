@@ -9,12 +9,15 @@ import {
   currentWeekKey,
   defaultHouseholdConfig,
   isChildThemeColor,
+  isChoreCategory,
   isChoreScheduledOnDay,
   money,
   nextDayToComplete,
+  resolveChoreCategory,
   today,
   type ChildThemeColor,
   type Chore,
+  type ChoreCategory,
   type ChoreFrequency,
   type ChoreOverride,
   type ChoreRewardMode,
@@ -85,6 +88,7 @@ function mergeChoreWithOverride(chore: Chore, override?: ChoreOverride): Chore |
     ...(override.day !== undefined ? { day: override.day } : {}),
     ...(override.days !== undefined ? { days: override.days } : {}),
     ...(override.frequency !== undefined ? { frequency: override.frequency } : {}),
+    ...(override.choreCategory !== undefined ? { choreCategory: override.choreCategory } : {}),
     ...(override.rewardMode !== undefined ? { rewardMode: override.rewardMode } : {}),
     ...(override.completedDays !== undefined ? { completedDays: override.completedDays } : {}),
     ...(override.value !== undefined ? { value: override.value } : {}),
@@ -538,6 +542,7 @@ export async function ensureWeeklyReset(family: Family): Promise<Family> {
               day: chore.day,
               days: chore.days && chore.days.length > 0 ? chore.days : [chore.day],
               frequency: chore.frequency ?? "weekly",
+              choreCategory: chore.choreCategory ?? resolveChoreCategory(chore),
               rewardMode: chore.rewardMode ?? "per_day",
               completedDays: nextCompletedDays,
               emoji: chore.emoji,
@@ -635,6 +640,9 @@ function buildChoreRpcPayload(
     : [Number(payload["day"] ?? 0)];
   const primaryDay = rawDays[0] ?? Number(payload["day"] ?? 0);
   const frequency = (payload["frequency"] as ChoreFrequency | undefined) ?? "weekly";
+  const choreCategory: ChoreCategory = isChoreCategory(payload["choreCategory"])
+    ? payload["choreCategory"]
+    : resolveChoreCategory({ title: String(payload["title"] ?? "") });
   const rewardMode: ChoreRewardMode = payload["rewardMode"] === "all_days" ? "all_days" : "per_day";
   const completedDays = Array.isArray(payload["completedDays"])
     ? (payload["completedDays"] as number[]).map(Number)
@@ -647,6 +655,7 @@ function buildChoreRpcPayload(
     day: primaryDay,
     days: rawDays,
     frequency,
+    choreCategory,
     rewardMode,
     completedDays,
     emoji: String(payload["emoji"] ?? "🧹"),
@@ -669,6 +678,9 @@ function buildChoreObject(payload: Record<string, unknown>): Chore {
     : [Number(payload["day"] ?? 0)];
   const primaryDay = rawDays[0] ?? Number(payload["day"] ?? 0);
   const frequency = (payload["frequency"] as ChoreFrequency | undefined) ?? "weekly";
+  const choreCategory: ChoreCategory = isChoreCategory(payload["choreCategory"])
+    ? payload["choreCategory"]
+    : resolveChoreCategory({ title: String(payload["title"] ?? "") });
   const rewardMode: ChoreRewardMode = payload["rewardMode"] === "all_days" ? "all_days" : "per_day";
   const completedDays = Array.isArray(payload["completedDays"])
     ? (payload["completedDays"] as number[]).map(Number)
@@ -681,6 +693,7 @@ function buildChoreObject(payload: Record<string, unknown>): Chore {
     day: primaryDay,
     days: rawDays,
     frequency,
+    choreCategory,
     rewardMode,
     completedDays,
     value: Math.round(Number(payload["value"] ?? 0)),
@@ -986,6 +999,9 @@ export async function executeFamilyAction(
     const nextDay = nextDays[0] ?? Number(payload["day"] ?? existing.day);
     const nextFrequency =
       (payload["frequency"] as ChoreFrequency | undefined) ?? existing.frequency ?? "weekly";
+    const nextChoreCategory: ChoreCategory = isChoreCategory(payload["choreCategory"])
+      ? payload["choreCategory"]
+      : (existing.choreCategory ?? resolveChoreCategory(existing));
     const nextRewardMode: ChoreRewardMode =
       payload["rewardMode"] === "all_days"
         ? "all_days"
@@ -1014,6 +1030,7 @@ export async function executeFamilyAction(
           day: nextDay,
           days: nextDays,
           frequency: nextFrequency,
+          choreCategory: nextChoreCategory,
           rewardMode: nextRewardMode,
           emoji: nextEmoji,
           requirePhoto: nextRequirePhoto,
@@ -1035,6 +1052,7 @@ export async function executeFamilyAction(
           day: nextDay,
           days: nextDays,
           frequency: nextFrequency,
+          choreCategory: nextChoreCategory,
           rewardMode: nextRewardMode,
           emoji: nextEmoji,
           requirePhoto: nextRequirePhoto,
@@ -1065,6 +1083,7 @@ export async function executeFamilyAction(
         nextValue !== existing.value ||
         nextChildId !== existing.childId ||
         nextDay !== existing.day ||
+        nextChoreCategory !== resolveChoreCategory(existing) ||
         nextRewardMode !== (existing.rewardMode ?? "per_day");
 
       if ((existing.status === "todo" || existing.status === "rejected") && coreFieldsChanged) {
@@ -1076,6 +1095,7 @@ export async function executeFamilyAction(
             day: nextDay,
             days: nextDays,
             frequency: nextFrequency,
+            choreCategory: nextChoreCategory,
             rewardMode: nextRewardMode,
             completedDays: existing.completedDays ?? [],
             emoji: nextEmoji,
@@ -1115,6 +1135,7 @@ export async function executeFamilyAction(
           day: nextDay,
           days: nextDays,
           frequency: nextFrequency,
+          choreCategory: nextChoreCategory,
           rewardMode: nextRewardMode,
           value: nextValue,
           emoji: nextEmoji,
@@ -1188,6 +1209,7 @@ export async function executeFamilyAction(
           day: chore.day,
           days: chore.days ?? [chore.day],
           frequency: chore.frequency ?? "weekly",
+          choreCategory: chore.choreCategory ?? resolveChoreCategory(chore),
           rewardMode: chore.rewardMode ?? "per_day",
           completedDays: [],
           emoji: chore.emoji,
@@ -1375,6 +1397,7 @@ export async function executeFamilyAction(
           day: chore.day,
           days: chore.days ?? [chore.day],
           frequency: chore.frequency ?? "weekly",
+          choreCategory: chore.choreCategory ?? resolveChoreCategory(chore),
           rewardMode: chore.rewardMode ?? "all_days",
           completedDays: nextCompletedDays,
           emoji: chore.emoji,
