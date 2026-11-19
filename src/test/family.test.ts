@@ -14,7 +14,10 @@ import {
   choreWeeklyMax,
   STARTER_CHORES,
   CHORE_CATEGORIES,
+  CHORE_PRIORITIES,
+  calculateChildBudgetSplit,
   resolveChoreCategory,
+  resolveChorePriority,
   getChoreCategoryInfo,
   CHILD_THEMES,
   isChildThemeColor,
@@ -333,5 +336,129 @@ describe("Multi-day reward modes and weekly earnings pot", () => {
     expect(pot.pendingAmount).toBe(350);
     expect(pot.pendingPercent).toBe(29);
     expect(pot.remainingToEarn).toBe(600);
+  });
+});
+
+describe("4-star priority system & exact-1p weekly budget splitter", () => {
+  it("provides 4 priority levels and resolves defaults cleanly", () => {
+    expect(CHORE_PRIORITIES.map((p) => p.level)).toEqual([1, 2, 3, 4]);
+    expect(resolveChorePriority({ title: "Brush teeth morning & night" })).toBe(1);
+    expect(resolveChorePriority({ title: "Set the table for dinner" })).toBe(2);
+    expect(resolveChorePriority({ title: "Complete English homework" })).toBe(3);
+    expect(resolveChorePriority({ title: "Hoover the living room" })).toBe(4);
+  });
+
+  it("splits a child weekly budget to the exact 1p weighted by priority and frequency", () => {
+    const chores: Chore[] = [
+      {
+        id: "t1",
+        title: "Feed pets",
+        childId: "child-1",
+        day: 0,
+        days: [0, 1, 2, 3, 4, 5, 6],
+        frequency: "daily",
+        rewardMode: "per_day",
+        priority: 1,
+        value: 0,
+        emoji: "🐈",
+        status: "todo",
+      },
+      {
+        id: "t2",
+        title: "Maths homework",
+        childId: "child-1",
+        day: 2,
+        days: [2],
+        frequency: "weekly",
+        priority: 3,
+        value: 0,
+        emoji: "🔢",
+        status: "todo",
+      },
+      {
+        id: "t3",
+        title: "Full bedroom tidy",
+        childId: "child-1",
+        day: 5,
+        days: [5],
+        frequency: "weekly",
+        priority: 4,
+        value: 0,
+        emoji: "🧹",
+        status: "todo",
+      },
+    ];
+
+    const res = calculateChildBudgetSplit(chores, "child-1", 500, "overwrite_all");
+    expect(res.budgetPence).toBe(500);
+    expect(res.allocatedWeeklyTotalPence).toBe(500);
+    const a1 = res.allocations.find((a) => a.choreId === "t1")!;
+    const a2 = res.allocations.find((a) => a.choreId === "t2")!;
+    const a3 = res.allocations.find((a) => a.choreId === "t3")!;
+    expect(a1.newWeeklyMax).toBe(a1.newValue * 7);
+    expect(a3.newValue).toBeGreaterThan(a2.newValue);
+  });
+
+  it("preserves existing priced chores in unpriced_only mode and updates via apply_budget_split", () => {
+    const chores: Chore[] = [
+      {
+        id: "p1",
+        title: "Locked chore",
+        childId: "oliver",
+        day: 0,
+        days: [0],
+        frequency: "weekly",
+        priority: 2,
+        value: 150,
+        emoji: "📚",
+        status: "todo",
+      },
+      {
+        id: "p2",
+        title: "Unpriced hobby task",
+        childId: "oliver",
+        day: 3,
+        days: [3],
+        frequency: "weekly",
+        priority: 2,
+        value: 0,
+        emoji: "🪴",
+        status: "todo",
+      },
+      {
+        id: "p3",
+        title: "Unpriced big chore",
+        childId: "oliver",
+        day: 5,
+        days: [5],
+        frequency: "weekly",
+        priority: 4,
+        value: 0,
+        emoji: "🧹",
+        status: "todo",
+      },
+    ];
+
+    const res = calculateChildBudgetSplit(chores, "oliver", 600, "unpriced_only");
+    expect(res.lockedWeeklyPence).toBe(150);
+    expect(res.availableToSplitPence).toBe(450);
+    expect(res.allocatedWeeklyTotalPence).toBe(600);
+    const p1 = res.allocations.find((a) => a.choreId === "p1")!;
+    const p2 = res.allocations.find((a) => a.choreId === "p2")!;
+    const p3 = res.allocations.find((a) => a.choreId === "p3")!;
+    expect(p1.locked).toBe(true);
+    expect(p1.newValue).toBe(150);
+    expect(p2.newValue).toBe(150);
+    expect(p3.newValue).toBe(300);
+
+    const stateAfter = demoAction({ ...demo.state, chores }, "apply_budget_split", {
+      updates: res.allocations.map((a) => ({
+        id: a.choreId,
+        value: a.newValue,
+        priority: a.priority,
+      })),
+    });
+    expect(stateAfter.chores.find((c) => c.id === "p2")?.value).toBe(150);
+    expect(stateAfter.chores.find((c) => c.id === "p3")?.value).toBe(300);
   });
 });

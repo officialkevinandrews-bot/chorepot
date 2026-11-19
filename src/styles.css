@@ -772,6 +772,99 @@ h3 {
 .idea-card:hover {
   border-color: color-mix(in oklch, var(--primary) 40%, var(--border));
 }
+.chore-priority-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--amber);
+  color: oklch(0.42 0.12 65);
+  border: 1px solid oklch(0.86 0.1 80);
+}
+.money-tag.unpriced {
+  background: var(--mint);
+  color: var(--primary);
+  border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
+}
+.cat-pick-btn.prio-btn.active {
+  background: var(--amber);
+  border-color: oklch(0.75 0.15 72);
+  color: var(--foreground);
+}
+.preset-chip.active-zero {
+  background: var(--mint);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+.family-dialog-wide {
+  max-width: 680px !important;
+}
+.overwrite-notice-box {
+  background: oklch(0.97 0.04 82);
+  border: 1px solid oklch(0.84 0.11 78);
+  border-radius: 16px;
+  padding: 14px 16px;
+}
+.overwrite-notice-box > strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 800;
+}
+.overwrite-notice-box > p {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin: 4px 0 8px;
+}
+.budget-split-child {
+  background: var(--child-card-bg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 16px;
+}
+.budget-split-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: oklch(1 0 0 / 82%);
+  border: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.prio-star-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 6px;
+}
+.prio-star-btn {
+  border: 0;
+  background: transparent;
+  color: var(--border);
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 3px;
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    transform 0.12s;
+}
+.prio-star-btn.filled {
+  color: oklch(0.72 0.18 75);
+}
+.prio-star-btn:hover:not(:disabled) {
+  transform: scale(1.12);
+}
+.prio-star-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

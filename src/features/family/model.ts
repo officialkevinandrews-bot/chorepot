@@ -174,6 +174,90 @@ export function resolveChoreCategory(chore: {
   return "self_care";
 }
 
+export type ChorePriority = 1 | 2 | 3 | 4;
+
+export type ChorePriorityInfo = {
+  level: ChorePriority;
+  stars: string;
+  label: string;
+  shortLabel: string;
+  description: string;
+};
+
+export const CHORE_PRIORITIES: ChorePriorityInfo[] = [
+  {
+    level: 1,
+    stars: "⭐",
+    label: "1× Quick Habit",
+    shortLabel: "Quick Habit",
+    description: "Fast 1-minute daily habits",
+  },
+  {
+    level: 2,
+    stars: "⭐⭐",
+    label: "2× Standard",
+    shortLabel: "Standard",
+    description: "Everyday family & home tasks",
+  },
+  {
+    level: 3,
+    stars: "⭐⭐⭐",
+    label: "3× Important",
+    shortLabel: "Important",
+    description: "Key responsibilities & homework",
+  },
+  {
+    level: 4,
+    stars: "⭐⭐⭐⭐",
+    label: "4× Big Effort",
+    shortLabel: "Big Effort",
+    description: "Heavy cleaning, big jobs & top priorities",
+  },
+];
+
+export function isChorePriority(value: unknown): value is ChorePriority {
+  return value === 1 || value === 2 || value === 3 || value === 4;
+}
+
+export function getChorePriorityInfo(priority?: ChorePriority): ChorePriorityInfo {
+  const level = isChorePriority(priority) ? priority : 2;
+  return CHORE_PRIORITIES.find((p) => p.level === level) ?? CHORE_PRIORITIES[1]!;
+}
+
+export function resolveChorePriority(chore: {
+  priority?: ChorePriority;
+  value?: number;
+  frequency?: ChoreFrequency;
+  title?: string;
+}): ChorePriority {
+  if (isChorePriority(chore.priority)) return chore.priority;
+  const t = (chore.title ?? "").toLowerCase();
+  if (/hoover|mop|wash.*car|car.*inside|charity|bedroom tidy|litter|weed/.test(t)) {
+    return 4;
+  }
+  if (
+    /homework|math|english|dishwasher|recycl|pack.*bag|prepare dinner|cook|bake|quiz|coding|foodbank|bedsheets/.test(
+      t,
+    )
+  ) {
+    return 3;
+  }
+  if (/brush teeth|basket|post|curtain|towel|lights|chargers|cushions|unpack/.test(t)) {
+    return 1;
+  }
+  if (typeof chore.value === "number" && chore.value >= 200) return 4;
+  if (typeof chore.value === "number" && chore.value >= 125) return 3;
+  if (
+    typeof chore.value === "number" &&
+    chore.value > 0 &&
+    chore.value <= 30 &&
+    chore.frequency === "daily"
+  ) {
+    return 1;
+  }
+  return 2;
+}
+
 export type StarterChoreTemplate = {
   key: string;
   choreCategory: ChoreCategory;
@@ -185,6 +269,7 @@ export type StarterChoreTemplate = {
   day: number;
   days: number[];
   rewardMode?: ChoreRewardMode;
+  priority?: ChorePriority;
   requirePhoto: boolean;
   description: string;
   defaultSelected?: boolean;
@@ -1287,6 +1372,7 @@ export type Chore = {
   emoji: string;
   status: "todo" | "pending" | "approved" | "rejected";
   choreCategory?: ChoreCategory;
+  priority?: ChorePriority;
   proof?: string;
   note?: string;
   description?: string;
@@ -1336,6 +1422,7 @@ export type HouseholdConfig = {
   choreOverrides?: Record<string, ChoreOverride>;
   goalOverrides?: Record<string, GoalOverride>;
   customGoals?: Goal[];
+  weeklyBudgets?: Record<string, number>;
   updatedAt?: string;
 };
 
@@ -1644,6 +1731,218 @@ export function familyWeeklyPotSummary(
   };
 }
 
+export type BudgetSplitMode = "overwrite_all" | "unpriced_only";
+
+export type ChoreSplitAllocation = {
+  choreId: string;
+  priority: ChorePriority;
+  locked: boolean;
+  oldValue: number;
+  newValue: number;
+  newWeeklyMax: number;
+  daysCount: number;
+  rewardMode: ChoreRewardMode;
+};
+
+export type ChildBudgetSplitResult = {
+  childId: string;
+  budgetPence: number;
+  lockedWeeklyPence: number;
+  availableToSplitPence: number;
+  allocatedWeeklyTotalPence: number;
+  allocations: ChoreSplitAllocation[];
+};
+
+export function calculateChildBudgetSplit(
+  chores: Chore[],
+  childId: string,
+  budgetPence: number,
+  mode: BudgetSplitMode,
+  priorityOverrides?: Record<string, ChorePriority>,
+): ChildBudgetSplitResult {
+  const targetBudget = Math.max(0, Math.round(budgetPence));
+  const childChores = chores.filter((c) => c.childId === childId);
+
+  let lockedWeeklyPence = 0;
+  const lockedAllocs: ChoreSplitAllocation[] = [];
+
+  type WorkingAlloc = {
+    choreId: string;
+    priority: ChorePriority;
+    oldValue: number;
+    daysCount: number;
+    rewardMode: ChoreRewardMode;
+    isPerDay: boolean;
+    weight: number;
+    exactWeekly: number;
+    newValue: number;
+    newWeeklyMax: number;
+    remainderScore: number;
+  };
+  const working: WorkingAlloc[] = [];
+
+  for (const c of childChores) {
+    const priority = priorityOverrides?.[c.id] ?? resolveChorePriority(c);
+    const daysCount = choreScheduledDaysCount(c);
+    const rMode = choreRewardMode(c);
+    const isPerDay = daysCount > 1 && rMode === "per_day";
+    const isLocked = c.status === "pending" || (mode === "unpriced_only" && c.value > 0);
+
+    if (isLocked) {
+      const wMax = choreWeeklyMax(c);
+      lockedWeeklyPence += wMax;
+      lockedAllocs.push({
+        choreId: c.id,
+        priority,
+        locked: true,
+        oldValue: c.value,
+        newValue: c.value,
+        newWeeklyMax: wMax,
+        daysCount,
+        rewardMode: rMode,
+      });
+    } else {
+      const weight = isPerDay
+        ? priority * daysCount
+        : daysCount > 1
+          ? priority * (1 + 0.25 * (daysCount - 1))
+          : priority;
+      working.push({
+        choreId: c.id,
+        priority,
+        oldValue: c.value,
+        daysCount,
+        rewardMode: rMode,
+        isPerDay,
+        weight,
+        exactWeekly: 0,
+        newValue: 0,
+        newWeeklyMax: 0,
+        remainderScore: 0,
+      });
+    }
+  }
+
+  const availableToSplitPence = Math.max(0, targetBudget - lockedWeeklyPence);
+  const totalWeight = working.reduce((sum, item) => sum + item.weight, 0);
+
+  if (working.length > 0 && totalWeight > 0 && availableToSplitPence > 0) {
+    for (const item of working) {
+      item.exactWeekly = (availableToSplitPence * item.weight) / totalWeight;
+      if (item.isPerDay) {
+        const perDayExact = item.exactWeekly / item.daysCount;
+        const rounded = Math.round(perDayExact);
+        item.newValue = Math.max(availableToSplitPence >= item.daysCount ? 1 : 0, rounded);
+        item.newWeeklyMax = item.newValue * item.daysCount;
+        item.remainderScore = perDayExact - item.newValue;
+      } else {
+        const rounded = Math.round(item.exactWeekly);
+        item.newValue = Math.max(1, rounded);
+        item.newWeeklyMax = item.newValue;
+        item.remainderScore = item.exactWeekly - item.newValue;
+      }
+    }
+
+    const currentUnlockedTotal = working.reduce((sum, item) => sum + item.newWeeklyMax, 0);
+    let diff = availableToSplitPence - currentUnlockedTotal;
+
+    const singles = working.filter((item) => !item.isPerDay);
+    const perDays = working.filter((item) => item.isPerDay);
+
+    let guard = 0;
+    while (diff > 0 && singles.length > 0 && guard < 10000) {
+      guard += 1;
+      singles.sort(
+        (a, b) =>
+          b.remainderScore - a.remainderScore || b.priority - a.priority || a.newValue - b.newValue,
+      );
+      for (const s of singles) {
+        if (diff <= 0) break;
+        s.newValue += 1;
+        s.newWeeklyMax += 1;
+        s.remainderScore -= 1;
+        diff -= 1;
+      }
+    }
+
+    while (diff < 0 && singles.length > 0 && guard < 20000) {
+      guard += 1;
+      const minKeep = singles.length <= availableToSplitPence ? 1 : 0;
+      const decreasable = singles.filter((s) => s.newValue > minKeep);
+      if (decreasable.length === 0) break;
+      decreasable.sort(
+        (a, b) =>
+          a.remainderScore - b.remainderScore || a.priority - b.priority || b.newValue - a.newValue,
+      );
+      for (const s of decreasable) {
+        if (diff >= 0) break;
+        if (s.newValue <= minKeep) continue;
+        s.newValue -= 1;
+        s.newWeeklyMax -= 1;
+        s.remainderScore += 1;
+        diff += 1;
+      }
+    }
+
+    // Reconcile remaining difference using multi-day per_day chores if still non-zero
+    if (diff !== 0 && perDays.length > 0) {
+      while (diff > 0 && guard < 25000) {
+        guard += 1;
+        const candidates = perDays
+          .filter((p) => p.daysCount <= diff)
+          .sort((a, b) => b.priority - a.priority || b.remainderScore - a.remainderScore);
+        const pick = candidates[0];
+        if (!pick) break;
+        pick.newValue += 1;
+        pick.newWeeklyMax += pick.daysCount;
+        diff -= pick.daysCount;
+      }
+      while (diff < 0 && guard < 30000) {
+        guard += 1;
+        const candidates = perDays
+          .filter((p) => p.newValue > 0 && Math.abs(diff + p.daysCount) < Math.abs(diff))
+          .sort((a, b) => a.priority - b.priority || a.remainderScore - b.remainderScore);
+        const pick = candidates[0];
+        if (!pick) break;
+        pick.newValue -= 1;
+        pick.newWeeklyMax -= pick.daysCount;
+        diff += pick.daysCount;
+      }
+    }
+  }
+
+  const byId = new Map<string, ChoreSplitAllocation>();
+  for (const l of lockedAllocs) {
+    byId.set(l.choreId, l);
+  }
+  for (const w of working) {
+    byId.set(w.choreId, {
+      choreId: w.choreId,
+      priority: w.priority,
+      locked: false,
+      oldValue: w.oldValue,
+      newValue: w.newValue,
+      newWeeklyMax: w.newWeeklyMax,
+      daysCount: w.daysCount,
+      rewardMode: w.rewardMode,
+    });
+  }
+
+  const allocations = childChores
+    .map((c) => byId.get(c.id))
+    .filter((a): a is ChoreSplitAllocation => Boolean(a));
+  const allocatedWeeklyTotalPence = allocations.reduce((sum, a) => sum + a.newWeeklyMax, 0);
+
+  return {
+    childId,
+    budgetPence: targetBudget,
+    lockedWeeklyPence,
+    availableToSplitPence,
+    allocatedWeeklyTotalPence,
+    allocations,
+  };
+}
+
 const stamp = new Date().toISOString();
 const prevWeekStamp = new Date(Date.now() - 10 * 86400000).toISOString();
 
@@ -1842,6 +2141,14 @@ export function demoAction(
     const choreCategory = isChoreCategory(payload["choreCategory"])
       ? payload["choreCategory"]
       : resolveChoreCategory({ title: String(payload["title"] ?? "") });
+    const value = Number(payload["value"] ?? 0);
+    const priority = isChorePriority(payload["priority"])
+      ? payload["priority"]
+      : resolveChorePriority({
+          title: String(payload["title"] ?? ""),
+          frequency,
+          value,
+        });
     const newChore: Chore = {
       id: crypto.randomUUID(),
       title: String(payload["title"] ?? ""),
@@ -1850,9 +2157,10 @@ export function demoAction(
       days: rawDays,
       frequency,
       choreCategory,
+      priority,
       rewardMode,
       completedDays: [],
-      value: Number(payload["value"] ?? 0),
+      value,
       emoji: String(payload["emoji"] ?? "🧹"),
       status: "todo",
       weekKey: currentWeekKey(),
@@ -1872,6 +2180,9 @@ export function demoAction(
     }
     if (isChoreCategory(payload["choreCategory"])) {
       chore.choreCategory = payload["choreCategory"];
+    }
+    if (isChorePriority(payload["priority"])) {
+      chore.priority = payload["priority"];
     }
     if (Array.isArray(payload["days"])) {
       const nextDays = (payload["days"] as number[]).map(Number);
@@ -2049,6 +2360,20 @@ export function demoAction(
       g.saved = g.target;
       g.achieved = true;
       g.achievedAt = new Date().toISOString();
+    }
+  } else if (action === "apply_budget_split") {
+    const updates = Array.isArray(payload["updates"])
+      ? (payload["updates"] as Array<Record<string, unknown>>)
+      : [];
+    for (const item of updates) {
+      const target = s.chores.find((c) => c.id === item["id"]);
+      if (!target) continue;
+      if (typeof item["value"] === "number" && item["value"] >= 0) {
+        target.value = Math.round(item["value"]);
+      }
+      if (isChorePriority(item["priority"])) {
+        target.priority = item["priority"];
+      }
     }
   } else if (action === "clear_notifications") {
     s.notifications = [];

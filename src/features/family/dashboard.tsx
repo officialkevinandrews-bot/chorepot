@@ -55,9 +55,13 @@ import { enablePush } from "./push";
 import {
   CHILD_THEMES,
   CHORE_CATEGORIES,
+  CHORE_PRIORITIES,
   STARTER_CHORES,
+  calculateChildBudgetSplit,
   getChoreCategoryInfo,
+  getChorePriorityInfo,
   resolveChoreCategory,
+  resolveChorePriority,
   isRunningInApk,
   money,
   balance,
@@ -73,8 +77,10 @@ import {
   choreRewardMode,
   choreScheduledDaysCount,
   choreWeeklyMax,
+  type BudgetSplitMode,
   type ChildThemeColor,
   type ChoreCategory,
+  type ChorePriority,
   type Family,
   type Chore,
   type ChoreFrequency,
@@ -176,6 +182,7 @@ const modalTitles: Record<string, string> = {
   payday: "Choose payday schedule",
   pay: "It’s pocket money time!",
   unlock_pin: "Enter Parent PIN",
+  budget_split: "Auto-split weekly pocket money",
 };
 
 export function Dashboard({
@@ -222,11 +229,18 @@ export function Dashboard({
   const [choreChildIdState, setChoreChildIdState] = useState("");
   const [choreEmojiState, setChoreEmojiState] = useState("🧹");
   const [choreCategoryState, setChoreCategoryState] = useState<ChoreCategory>("self_care");
+  const [chorePriorityState, setChorePriorityState] = useState<ChorePriority>(2);
   const [choreFrequency, setChoreFrequency] = useState<ChoreFrequency>("weekly");
   const [choreDays, setChoreDays] = useState<number[]>([today()]);
   const [choreRewardModeState, setChoreRewardModeState] = useState<ChoreRewardMode>("per_day");
   const [choreValueStr, setChoreValueStr] = useState("1.00");
   const [choreRequirePhoto, setChoreRequirePhoto] = useState(false);
+
+  // Weekly budget auto-splitter state
+  const [splitMode, setSplitMode] = useState<BudgetSplitMode>("overwrite_all");
+  const [splitBudgetsStr, setSplitBudgetsStr] = useState<Record<string, string>>({});
+  const [splitPriorities, setSplitPriorities] = useState<Record<string, ChorePriority>>({});
+  const [splitOverwriteConfirmed, setSplitOverwriteConfirmed] = useState(false);
 
   // Payday & PIN form state
   const [paydayFreq, setPaydayFreq] = useState<"weekly" | "monthly">("weekly");
@@ -261,6 +275,10 @@ export function Dashboard({
   const totalChoresCount = (isChild ? filtered : data.state.chores).length;
   const hasApprovedRecurring = data.state.chores.some(
     (c) => c.status === "approved" && c.frequency !== "once",
+  );
+  const unpricedChoresCount = data.state.chores.filter((c) => c.value === 0).length;
+  const hasExistingPricedChores = data.state.chores.some(
+    (c) => c.value > 0 && c.status !== "pending",
   );
   const paydayInfo = nextPaydayInfo(data.config);
   const celebrationsEnabled = data.preferences?.celebrations !== false;
@@ -358,23 +376,25 @@ export function Dashboard({
           ? approvedIntermediateAllDays
             ? "Day confirmed! Keep going to earn the weekly reward."
             : "Approved! Pocket money added."
-          : action === "complete"
-            ? "Amazing work! Sent for approval."
-            : action === "pay"
-              ? "Payday recorded."
-              : action === "reject"
-                ? "Sent back with your note."
-                : action === "delete_chore"
-                  ? "Chore deleted."
-                  : action === "reset_chore"
-                    ? "Chores reset to To do."
-                    : action === "delete_goal"
-                      ? "Savings goal removed."
-                      : action === "remove_managed_child"
-                        ? "Child profile removed."
-                        : action === "clear_notifications"
-                          ? "Notifications cleared."
-                          : "All saved!";
+          : action === "apply_budget_split"
+            ? "Weekly pocket money split across chores!"
+            : action === "complete"
+              ? "Amazing work! Sent for approval."
+              : action === "pay"
+                ? "Payday recorded."
+                : action === "reject"
+                  ? "Sent back with your note."
+                  : action === "delete_chore"
+                    ? "Chore deleted."
+                    : action === "reset_chore"
+                      ? "Chores reset to To do."
+                      : action === "delete_goal"
+                        ? "Savings goal removed."
+                        : action === "remove_managed_child"
+                          ? "Child profile removed."
+                          : action === "clear_notifications"
+                            ? "Notifications cleared."
+                            : "All saved!";
       toast.success(successMsg);
 
       if (["complete", "allocate", "achieve_goal"].includes(action)) {
@@ -410,6 +430,7 @@ export function Dashboard({
       setChoreChildIdState(children[0]?.id ?? "");
       setChoreEmojiState("🧹");
       setChoreCategoryState(categoryFilter === "all" ? "self_care" : categoryFilter);
+      setChorePriorityState(2);
       setChoreFrequency("weekly");
       setChoreDays([today()]);
       setChoreRewardModeState("per_day");
@@ -422,11 +443,35 @@ export function Dashboard({
       setChoreChildIdState(item.childId);
       setChoreEmojiState(item.emoji);
       setChoreCategoryState(resolveChoreCategory(item));
+      setChorePriorityState(resolveChorePriority(item));
       setChoreFrequency(item.frequency ?? "weekly");
       setChoreDays(item.days && item.days.length > 0 ? item.days : [item.day ?? today()]);
       setChoreRewardModeState(item.rewardMode === "all_days" ? "all_days" : "per_day");
       setChoreValueStr((item.value / 100).toFixed(2));
       setChoreRequirePhoto(Boolean(item.requirePhoto));
+    } else if (kind === "budget_split") {
+      const nextBudgets: Record<string, string> = {};
+      for (const c of children) {
+        const savedBudget = data.config?.weeklyBudgets?.[c.id];
+        const currentMax = childWeeklySummary(data.state, c.id).weeklyMax;
+        const initialPence =
+          typeof savedBudget === "number" && savedBudget > 0
+            ? savedBudget
+            : currentMax > 0
+              ? currentMax
+              : 500;
+        nextBudgets[c.id] = (initialPence / 100).toFixed(2);
+      }
+      const nextPrios: Record<string, ChorePriority> = {};
+      for (const c of data.state.chores) {
+        nextPrios[c.id] = resolveChorePriority(c);
+      }
+      const anyPriced = data.state.chores.some((c) => c.value > 0 && c.status !== "pending");
+      const anyUnpriced = data.state.chores.some((c) => c.value === 0 && c.status !== "pending");
+      setSplitBudgetsStr(nextBudgets);
+      setSplitPriorities(nextPrios);
+      setSplitMode(anyPriced && anyUnpriced ? "unpriced_only" : "overwrite_all");
+      setSplitOverwriteConfirmed(!anyPriced);
     } else if (kind === "payday" || kind === "settings") {
       const cfg = data.config ?? defaultHouseholdConfig;
       setPaydayFreq(cfg.paydayFrequency);
@@ -442,6 +487,7 @@ export function Dashboard({
     setChoreDescState(tpl.description);
     setChoreEmojiState(tpl.emoji);
     setChoreCategoryState(tpl.choreCategory);
+    setChorePriorityState(resolveChorePriority(tpl));
     setChoreFrequency(tpl.frequency);
     setChoreDays(tpl.days.length > 0 ? tpl.days : [tpl.day]);
     setChoreRewardModeState(tpl.rewardMode ?? "per_day");
@@ -510,6 +556,7 @@ export function Dashboard({
           days: selectedDays,
           frequency: choreFrequency,
           choreCategory: choreCategoryState,
+          priority: chorePriorityState,
           rewardMode: resolvedRewardMode,
           emoji: choreEmojiState,
           requirePhoto: choreRequirePhoto,
@@ -528,11 +575,46 @@ export function Dashboard({
           days: selectedDays,
           frequency: choreFrequency,
           choreCategory: choreCategoryState,
+          priority: chorePriorityState,
           rewardMode: resolvedRewardMode,
           emoji: choreEmojiState,
           requirePhoto: choreRequirePhoto,
         });
       }
+    } else if (modal === "budget_split") {
+      if (splitMode === "overwrite_all" && hasExistingPricedChores && !splitOverwriteConfirmed) {
+        toast.error("Please confirm you want to overwrite existing chore rewards first.");
+        return;
+      }
+      const weeklyBudgets: Record<string, number> = {};
+      const updates: Array<{ id: string; value: number; priority: ChorePriority }> = [];
+      for (const c of children) {
+        const budgetPence = Math.max(0, Math.round((Number(splitBudgetsStr[c.id]) || 0) * 100));
+        weeklyBudgets[c.id] = budgetPence;
+        const result = calculateChildBudgetSplit(
+          data.state.chores,
+          c.id,
+          budgetPence,
+          splitMode,
+          splitPriorities,
+        );
+        for (const alloc of result.allocations) {
+          if (!alloc.locked) {
+            updates.push({
+              id: alloc.choreId,
+              value: alloc.newValue,
+              priority: alloc.priority,
+            });
+          } else if (splitPriorities[alloc.choreId] !== undefined) {
+            updates.push({
+              id: alloc.choreId,
+              value: alloc.oldValue,
+              priority: alloc.priority,
+            });
+          }
+        }
+      }
+      await act("apply_budget_split", { weeklyBudgets, updates });
     } else if (modal === "reject" && selected) {
       await act("reject", { id: selected.id, note: value("note") });
     } else if (modal === "goal") {
@@ -728,6 +810,7 @@ export function Dashboard({
     const mode = choreRewardMode(c);
     const doneDays = (c.completedDays ?? []).length;
     const catInfo = getChoreCategoryInfo(resolveChoreCategory(c));
+    const prioInfo = getChorePriorityInfo(resolveChorePriority(c));
     return (
       <div className="chore-row" key={c.id}>
         <div className="chore-emoji">{c.emoji}</div>
@@ -740,13 +823,16 @@ export function Dashboard({
             <span className={`chore-cat-pill cat-${catInfo.id}`}>
               {catInfo.emoji} {catInfo.shortLabel}
             </span>
+            <span className="chore-priority-pill" title={`${prioInfo.stars} ${prioInfo.label}`}>
+              {prioInfo.stars}
+            </span>
             {!isChild && (
               <span>
                 {m?.avatar} {m?.name}
               </span>
             )}
             <span>{formatChoreSchedule(c)}</span>
-            {totalDays > 1 && (
+            {totalDays > 1 && c.value > 0 && (
               <span className="chore-mode-pill">
                 {mode === "all_days"
                   ? `🎯 All ${totalDays} days for ${money(c.value)} (${doneDays}/${totalDays} done)`
@@ -761,7 +847,9 @@ export function Dashboard({
             {c.note && <span className="text-destructive">Note: {c.note}</span>}
           </div>
         </div>
-        <span className="money-tag">{money(c.value)}</span>
+        <span className={`money-tag ${c.value === 0 ? "unpriced" : ""}`}>
+          {c.value === 0 ? "✨ Auto-split" : money(c.value)}
+        </span>
         <div className="chore-row-actions">
           {c.status === "approved" ? (
             <>
@@ -1098,6 +1186,20 @@ export function Dashboard({
                     <span className="weekly-pot-dot remaining" />
                     Still up for grabs: <strong>{money(weeklyPot.remainingToEarn)}</strong>
                   </span>
+                  {!isChild && children.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="ml-auto"
+                      onClick={() => open("budget_split")}
+                    >
+                      <Sparkles size={14} />{" "}
+                      {unpricedChoresCount > 0
+                        ? `Auto-split budget (${unpricedChoresCount} unpriced)`
+                        : "Auto-split weekly budget"}
+                    </Button>
+                  )}
                 </div>
               </section>
 
@@ -1402,6 +1504,16 @@ export function Dashboard({
               <div className="section-heading">
                 <h2>{view === "Chores" ? "The family chore board" : "A week of little wins"}</h2>
                 <div className="flex flex-wrap items-center gap-2">
+                  {!isChild && children.length > 0 && data.state.chores.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => open("budget_split")}
+                    >
+                      <Sparkles size={14} /> Auto-split budget
+                    </Button>
+                  )}
                   {!isChild && hasApprovedRecurring && (
                     <Button
                       variant="outline"
@@ -1499,6 +1611,9 @@ export function Dashboard({
                         </option>
                       ))}
                     </select>
+                    <Button variant="outline" size="sm" onClick={() => open("budget_split")}>
+                      <Sparkles size={14} /> Auto-split budget
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => open("payday")}>
                       <CalendarDays size={14} /> Change payday
                     </Button>
@@ -1884,7 +1999,11 @@ export function Dashboard({
           if (!v) setModal(null);
         }}
       >
-        <DialogContent className="family-dialog">
+        <DialogContent
+          className={
+            modal === "budget_split" ? "family-dialog family-dialog-wide" : "family-dialog"
+          }
+        >
           <DialogHeader>
             <DialogTitle>{modalTitles[modal ?? ""] ?? ""}</DialogTitle>
             <DialogDescription>
@@ -1894,7 +2013,9 @@ export function Dashboard({
                   ? "Your parent will give it a thumbs up before you earn your pocket money."
                   : modal === "unlock_pin"
                     ? "Enter your 4-digit Parent PIN to return to Parent view."
-                    : "Little steps, happy families."}
+                    : modal === "budget_split"
+                      ? "Set a weekly pocket money budget per child and Chorepot will split it to the exact penny by priority and weekly frequency."
+                      : "Little steps, happy families."}
             </DialogDescription>
           </DialogHeader>
 
@@ -2025,6 +2146,9 @@ export function Dashboard({
                                   <strong className="text-sm">{tpl.title}</strong>
                                   <span className={`chore-cat-pill cat-${catInfo.id}`}>
                                     {catInfo.emoji} {catInfo.shortLabel}
+                                  </span>
+                                  <span className="chore-priority-pill">
+                                    {getChorePriorityInfo(resolveChorePriority(tpl)).stars}
                                   </span>
                                 </div>
                                 <p className="mt-1 text-xs text-muted-foreground">
@@ -2198,8 +2322,34 @@ export function Dashboard({
                     )}
 
                     <div>
+                      <span className="field-label">
+                        Priority / importance (for auto-splitting budget)
+                      </span>
+                      <div className="cat-picker-grid">
+                        {CHORE_PRIORITIES.map((p) => (
+                          <button
+                            key={p.level}
+                            type="button"
+                            className={`cat-pick-btn prio-btn ${
+                              chorePriorityState === p.level ? "active" : ""
+                            }`}
+                            onClick={() => setChorePriorityState(p.level)}
+                          >
+                            <span>{p.stars}</span>
+                            <div>
+                              <strong>{p.shortLabel}</strong>
+                              <small className="block text-[11px] text-muted-foreground">
+                                {p.description}
+                              </small>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
                       <label>
-                        Reward (£)
+                        Reward (£ — leave £0.00 to auto-split later)
                         <Input
                           name="value"
                           type="number"
@@ -2218,6 +2368,19 @@ export function Dashboard({
                         />
                       </label>
                       <div className="preset-row mt-2">
+                        <button
+                          type="button"
+                          className={`preset-chip ${Number(choreValueStr) === 0 ? "active-zero" : ""}`}
+                          disabled={
+                            modal === "edit_chore" &&
+                            selected !== null &&
+                            "status" in selected &&
+                            selected.status === "pending"
+                          }
+                          onClick={() => setChoreValueStr("0.00")}
+                        >
+                          ✨ £0 (Auto-split later)
+                        </button>
                         {rewardPresets.map((p) => (
                           <button
                             key={p}
@@ -2310,6 +2473,219 @@ export function Dashboard({
                     </Button>
                   </>
                 )}
+              </>
+            )}
+
+            {modal === "budget_split" && (
+              <>
+                {hasExistingPricedChores && (
+                  <div className="overwrite-notice-box">
+                    <strong>Some chores already have monetary values</strong>
+                    <p>Choose whether to overwrite them or only price your £0.00 chores:</p>
+                    <div className="mode-toggle-grid">
+                      <button
+                        type="button"
+                        className={`mode-card ${splitMode === "overwrite_all" ? "active" : ""}`}
+                        onClick={() => {
+                          setSplitMode("overwrite_all");
+                          setSplitOverwriteConfirmed(false);
+                        }}
+                      >
+                        <div>
+                          <strong>Overwrite all chores</strong>
+                          <span>Recalculate every chore from each child’s weekly budget</span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        className={`mode-card ${splitMode === "unpriced_only" ? "active" : ""}`}
+                        onClick={() => setSplitMode("unpriced_only")}
+                      >
+                        <div>
+                          <strong>Only price £0.00 chores</strong>
+                          <span>
+                            Keep existing prices locked & split remainder ({unpricedChoresCount}{" "}
+                            unpriced)
+                          </span>
+                        </div>
+                      </button>
+                    </div>
+                    {splitMode === "overwrite_all" && (
+                      <label className="checkbox-label mt-3">
+                        <input
+                          type="checkbox"
+                          checked={splitOverwriteConfirmed}
+                          onChange={(e) => setSplitOverwriteConfirmed(e.target.checked)}
+                        />
+                        <span>Yes, overwrite existing chore prices with this new split</span>
+                      </label>
+                    )}
+                  </div>
+                )}
+
+                {children.map((c) => {
+                  const childChores = data.state.chores.filter((ch) => ch.childId === c.id);
+                  const budgetPence = Math.max(
+                    0,
+                    Math.round((Number(splitBudgetsStr[c.id]) || 0) * 100),
+                  );
+                  const splitRes = calculateChildBudgetSplit(
+                    data.state.chores,
+                    c.id,
+                    budgetPence,
+                    splitMode,
+                    splitPriorities,
+                  );
+                  return (
+                    <div
+                      className={`budget-split-child child-theme-${c.themeColor ?? "sunset"}`}
+                      key={c.id}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-2xl">{c.avatar}</span>
+                          <div>
+                            <strong className="text-base">{c.name}’s weekly budget</strong>
+                            <small className="block text-xs text-muted-foreground">
+                              {childChores.length} chores · Allocated:{" "}
+                              <strong>{money(splitRes.allocatedWeeklyTotalPence)}</strong> of{" "}
+                              <strong>{money(budgetPence)}</strong>
+                            </small>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold">£</span>
+                          <Input
+                            type="number"
+                            min="0"
+                            max="500"
+                            step="0.01"
+                            className="w-28"
+                            aria-label={`${c.name} weekly budget`}
+                            value={splitBudgetsStr[c.id] ?? "5.00"}
+                            onChange={(e) =>
+                              setSplitBudgetsStr((prev) => ({
+                                ...prev,
+                                [c.id]: e.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="preset-row mt-2">
+                        {[300, 500, 750, 1000].map((p) => (
+                          <button
+                            key={p}
+                            type="button"
+                            className="preset-chip"
+                            onClick={() =>
+                              setSplitBudgetsStr((prev) => ({
+                                ...prev,
+                                [c.id]: (p / 100).toFixed(2),
+                              }))
+                            }
+                          >
+                            {money(p)}/wk
+                          </button>
+                        ))}
+                      </div>
+
+                      {splitMode === "unpriced_only" &&
+                        splitRes.lockedWeeklyPence > budgetPence && (
+                          <p className="mt-2 text-xs text-destructive">
+                            Locked chores already total {money(splitRes.lockedWeeklyPence)} (above{" "}
+                            {money(budgetPence)}). Increase the budget or choose “Overwrite all
+                            chores”.
+                          </p>
+                        )}
+
+                      <div className="mt-3 space-y-2">
+                        {splitRes.allocations.map((alloc) => {
+                          const ch = childChores.find((item) => item.id === alloc.choreId);
+                          if (!ch) return null;
+                          const prio = splitPriorities[ch.id] ?? alloc.priority;
+                          return (
+                            <div className="budget-split-row" key={ch.id}>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span>{ch.emoji}</span>
+                                  <strong className="text-xs">{ch.title}</strong>
+                                  {alloc.locked && (
+                                    <span className="chore-priority-pill">
+                                      <Lock size={10} /> Locked ({money(alloc.oldValue)})
+                                    </span>
+                                  )}
+                                </div>
+                                <small className="block text-[11px] text-muted-foreground">
+                                  {alloc.daysCount > 1 && alloc.rewardMode === "per_day"
+                                    ? `${alloc.daysCount} days/wk · paid each day`
+                                    : alloc.daysCount > 1
+                                      ? `${alloc.daysCount} days/wk · single weekly payout`
+                                      : formatChoreSchedule(ch)}
+                                </small>
+                              </div>
+
+                              <div
+                                className="prio-star-group"
+                                role="group"
+                                aria-label={`Priority for ${ch.title}`}
+                              >
+                                {([1, 2, 3, 4] as ChorePriority[]).map((lvl) => (
+                                  <button
+                                    key={lvl}
+                                    type="button"
+                                    disabled={alloc.locked}
+                                    title={getChorePriorityInfo(lvl).label}
+                                    className={`prio-star-btn ${prio >= lvl ? "filled" : ""}`}
+                                    onClick={() =>
+                                      setSplitPriorities((prev) => ({
+                                        ...prev,
+                                        [ch.id]: lvl,
+                                      }))
+                                    }
+                                  >
+                                    ★
+                                  </button>
+                                ))}
+                              </div>
+
+                              <div className="text-right">
+                                <span className="money-tag">{money(alloc.newValue)}</span>
+                                {alloc.daysCount > 1 && alloc.rewardMode === "per_day" && (
+                                  <small className="mt-0.5 block text-[10px] font-semibold text-muted-foreground">
+                                    {money(alloc.newWeeklyMax)}/wk max
+                                  </small>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {childChores.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            No chores assigned to {c.name} yet.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <Button
+                  disabled={
+                    busy ||
+                    children.length === 0 ||
+                    (hasExistingPricedChores &&
+                      splitMode === "overwrite_all" &&
+                      !splitOverwriteConfirmed) ||
+                    (splitMode === "unpriced_only" && unpricedChoresCount === 0)
+                  }
+                >
+                  <Sparkles size={15} />{" "}
+                  {hasExistingPricedChores && splitMode === "overwrite_all"
+                    ? "Confirm overwrite & apply weekly split"
+                    : "Apply weekly budget split"}
+                </Button>
               </>
             )}
 
