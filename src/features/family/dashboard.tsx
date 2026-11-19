@@ -63,10 +63,15 @@ import {
   formatChoreSchedule,
   nextPaydayInfo,
   childWeeklySummary,
+  familyWeeklyPotSummary,
+  choreRewardMode,
+  choreScheduledDaysCount,
+  choreWeeklyMax,
   type ChildThemeColor,
   type Family,
   type Chore,
   type ChoreFrequency,
+  type ChoreRewardMode,
   type Goal,
 } from "./model";
 
@@ -154,6 +159,7 @@ export function Dashboard({
   // Chore form state
   const [choreFrequency, setChoreFrequency] = useState<ChoreFrequency>("weekly");
   const [choreDays, setChoreDays] = useState<number[]>([today()]);
+  const [choreRewardModeState, setChoreRewardModeState] = useState<ChoreRewardMode>("per_day");
   const [choreValueStr, setChoreValueStr] = useState("1.00");
   const [choreRequirePhoto, setChoreRequirePhoto] = useState(false);
 
@@ -190,6 +196,17 @@ export function Dashboard({
   const paydayInfo = nextPaydayInfo(data.config);
   const celebrationsEnabled = data.preferences?.celebrations !== false;
   const visibleNotifications = inKidMode ? [] : data.state.notifications;
+  const overviewChildIds = isChild
+    ? [activeChild]
+    : child === "all"
+      ? children.map((c) => c.id)
+      : [child];
+  const weeklyPot = familyWeeklyPotSummary(data.state, overviewChildIds);
+  const isMultiDayForm =
+    choreFrequency === "daily" || (choreFrequency === "weekly" && choreDays.length > 1);
+  const formScheduledDaysCount =
+    choreFrequency === "daily" ? 7 : choreFrequency === "once" ? 1 : Math.max(1, choreDays.length);
+  const formRewardPreviewPence = Math.max(0, Math.round((Number(choreValueStr) || 0) * 100));
 
   useEffect(() => {
     setData(family);
@@ -253,6 +270,15 @@ export function Dashboard({
 
   async function act(action: string, payload: Record<string, unknown>) {
     setBusy(true);
+    const approvedChore =
+      action === "approve"
+        ? data.state.chores.find((item) => item.id === payload["id"])
+        : undefined;
+    const approvedIntermediateAllDays =
+      approvedChore !== undefined &&
+      choreScheduledDaysCount(approvedChore) > 1 &&
+      choreRewardMode(approvedChore) === "all_days" &&
+      (approvedChore.completedDays?.length ?? 0) + 1 < choreScheduledDaysCount(approvedChore);
     try {
       const updatedFamily = await executeFamilyAction(data, action, payload);
       setData(updatedFamily);
@@ -260,7 +286,9 @@ export function Dashboard({
 
       const successMsg =
         action === "approve"
-          ? "Approved! Pocket money added."
+          ? approvedIntermediateAllDays
+            ? "Day confirmed! Keep going to earn the weekly reward."
+            : "Approved! Pocket money added."
           : action === "complete"
             ? "Amazing work! Sent for approval."
             : action === "pay"
@@ -307,11 +335,13 @@ export function Dashboard({
     } else if (kind === "chore") {
       setChoreFrequency("weekly");
       setChoreDays([today()]);
+      setChoreRewardModeState("per_day");
       setChoreValueStr("1.00");
       setChoreRequirePhoto(false);
     } else if (kind === "edit_chore" && item && "value" in item) {
       setChoreFrequency(item.frequency ?? "weekly");
       setChoreDays(item.days && item.days.length > 0 ? item.days : [item.day ?? today()]);
+      setChoreRewardModeState(item.rewardMode === "all_days" ? "all_days" : "per_day");
       setChoreValueStr((item.value / 100).toFixed(2));
       setChoreRequirePhoto(Boolean(item.requirePhoto));
     } else if (kind === "payday" || kind === "settings") {
@@ -369,6 +399,11 @@ export function Dashboard({
         return;
       }
 
+      const resolvedRewardMode: ChoreRewardMode =
+        choreFrequency === "daily" || (choreFrequency === "weekly" && selectedDays.length > 1)
+          ? choreRewardModeState
+          : "per_day";
+
       if (modal === "chore") {
         await act("create_chore", {
           title: value("title"),
@@ -378,6 +413,7 @@ export function Dashboard({
           day: selectedDays[0] ?? 0,
           days: selectedDays,
           frequency: choreFrequency,
+          rewardMode: resolvedRewardMode,
           emoji: value("emoji"),
           requirePhoto: choreRequirePhoto,
         });
@@ -391,6 +427,7 @@ export function Dashboard({
           day: selectedDays[0] ?? 0,
           days: selectedDays,
           frequency: choreFrequency,
+          rewardMode: resolvedRewardMode,
           emoji: value("emoji"),
           requirePhoto: choreRequirePhoto,
         });
@@ -586,6 +623,9 @@ export function Dashboard({
 
   function choreRow(c: Chore) {
     const m = member(c.childId);
+    const totalDays = choreScheduledDaysCount(c);
+    const mode = choreRewardMode(c);
+    const doneDays = (c.completedDays ?? []).length;
     return (
       <div className="chore-row" key={c.id}>
         <div className="chore-emoji">{c.emoji}</div>
@@ -601,6 +641,13 @@ export function Dashboard({
               </span>
             )}
             <span>{formatChoreSchedule(c)}</span>
+            {totalDays > 1 && (
+              <span className="chore-mode-pill">
+                {mode === "all_days"
+                  ? `🎯 All ${totalDays} days for ${money(c.value)} (${doneDays}/${totalDays} done)`
+                  : `🪙 ${money(c.value)}/day · ${money(choreWeeklyMax(c))}/wk max${doneDays > 0 ? ` (${doneDays}/${totalDays} done)` : ""}`}
+              </span>
+            )}
             {c.requirePhoto && (
               <span className="inline-flex items-center gap-1 text-primary">
                 <Camera size={11} /> Photo required
@@ -892,6 +939,63 @@ export function Dashboard({
 
           {view === "Overview" && (
             <>
+              <section className="weekly-pot-card" aria-label="This week’s earnings pot">
+                <div className="weekly-pot-top">
+                  <div>
+                    <span className="eyebrow">THIS WEEK’S EARNINGS POT</span>
+                    <h2>
+                      {money(weeklyPot.earnedThisWeek)} earned of {money(weeklyPot.weeklyMax)} max
+                    </h2>
+                    <p>
+                      {weeklyPot.weeklyMax > 0
+                        ? weeklyPot.earnedPercent >= 100
+                          ? "Amazing teamwork — every penny of this week’s chore pot has been earned!"
+                          : `${money(weeklyPot.remainingToEarn)} still up for grabs this week`
+                        : "Add weekly or daily chores to build this week’s pocket money pot."}
+                    </p>
+                  </div>
+                  <div className="weekly-pot-pct">
+                    <strong>{weeklyPot.earnedPercent}%</strong>
+                    <span>{weeklyPot.earnedPercent >= 100 ? "🎉 Full Pot!" : "earned so far"}</span>
+                  </div>
+                </div>
+                <div
+                  className="weekly-pot-bar"
+                  role="progressbar"
+                  aria-valuenow={weeklyPot.earnedPercent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Weekly earnings progress"
+                >
+                  <div
+                    className="weekly-pot-fill-earned"
+                    style={{ width: `${weeklyPot.earnedPercent}%` }}
+                  />
+                  {weeklyPot.pendingPercent > 0 && (
+                    <div
+                      className="weekly-pot-fill-pending"
+                      style={{ width: `${weeklyPot.pendingPercent}%` }}
+                    />
+                  )}
+                </div>
+                <div className="weekly-pot-legend">
+                  <span className="weekly-pot-pill">
+                    <span className="weekly-pot-dot earned" />
+                    Earned so far: <strong>{money(weeklyPot.earnedThisWeek)}</strong> (
+                    {weeklyPot.earnedPercent}%)
+                  </span>
+                  <span className="weekly-pot-pill">
+                    <span className="weekly-pot-dot pending" />
+                    Waiting for approval: <strong>{money(weeklyPot.pendingAmount)}</strong> (
+                    {weeklyPot.pendingPercent}%)
+                  </span>
+                  <span className="weekly-pot-pill">
+                    <span className="weekly-pot-dot remaining" />
+                    Still up for grabs: <strong>{money(weeklyPot.remainingToEarn)}</strong>
+                  </span>
+                </div>
+              </section>
+
               <section className="stats-grid">
                 <div className="stat">
                   <span className="stat-icon mint">
@@ -974,6 +1078,13 @@ export function Dashboard({
                                 <div className="approval-detail">
                                   {member(c.childId)?.avatar} {member(c.childId)?.name}
                                   <span>·</span> Ready for review {c.proof && <Camera size={13} />}
+                                  {choreScheduledDaysCount(c) > 1 &&
+                                    choreRewardMode(c) === "all_days" && (
+                                      <span>
+                                        · Day {(c.completedDays?.length ?? 0) + 1} of{" "}
+                                        {choreScheduledDaysCount(c)}
+                                      </span>
+                                    )}
                                 </div>
                               </div>
                               <span className="money-tag">{money(c.value)}</span>
@@ -1061,61 +1172,85 @@ export function Dashboard({
                     </div>
                     {children
                       .filter((c) => !isChild || c.id === activeChild)
-                      .map((m) => (
-                        <div
-                          className={`child-card child-theme-${m.themeColor ?? "sunset"}`}
-                          key={m.id}
-                        >
-                          <div className="child-top">
-                            <span className="child-avatar">{m.avatar}</span>
-                            <div className="flex-1">
-                              <strong>{m.name}</strong>
-                              <p>
-                                {
-                                  data.state.chores.filter(
-                                    (c) => c.childId === m.id && c.status === "approved",
-                                  ).length
-                                }{" "}
-                                chores completed this week
-                              </p>
+                      .map((m) => {
+                        const childPot = childWeeklySummary(data.state, m.id);
+                        return (
+                          <div
+                            className={`child-card child-theme-${m.themeColor ?? "sunset"}`}
+                            key={m.id}
+                          >
+                            <div className="child-top">
+                              <span className="child-avatar">{m.avatar}</span>
+                              <div className="flex-1">
+                                <strong>{m.name}</strong>
+                                <p>
+                                  {
+                                    data.state.chores.filter(
+                                      (c) => c.childId === m.id && c.status === "approved",
+                                    ).length
+                                  }{" "}
+                                  chores completed this week
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`View ${m.name}'s pocket money`}
+                                onClick={() => {
+                                  setChild(m.id);
+                                  setView("Pocket money");
+                                }}
+                              >
+                                <ArrowUpRight />
+                              </Button>
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label={`View ${m.name}'s pocket money`}
-                              onClick={() => {
-                                setChild(m.id);
-                                setView("Pocket money");
-                              }}
-                            >
-                              <ArrowUpRight />
-                            </Button>
-                          </div>
-                          <div className="child-balance">
-                            <span>Pocket money balance</span>
-                            <strong>{money(balance(data.state, m.id))}</strong>
-                          </div>
-                          <div className="child-goal">
-                            {data.state.goals
-                              .filter((g) => g.childId === m.id)
-                              .slice(0, 1)
-                              .map((g) => (
-                                <div key={g.id}>
-                                  <div className="goal-caption">
-                                    <span>
-                                      {g.emoji} Saving for {g.title}
-                                    </span>
-                                    <span>{Math.round((g.saved / g.target) * 100)}%</span>
+                            <div className="child-balance">
+                              <span>Pocket money balance</span>
+                              <strong>{money(balance(data.state, m.id))}</strong>
+                            </div>
+                            <div className="child-weekly-pot">
+                              <div className="goal-caption">
+                                <span>🪙 This week’s pot</span>
+                                <span>
+                                  {money(childPot.earnedThisWeek)} / {money(childPot.weeklyMax)} (
+                                  {childPot.earnedPercent}%)
+                                </span>
+                              </div>
+                              <div className="weekly-pot-bar mini">
+                                <div
+                                  className="weekly-pot-fill-earned"
+                                  style={{ width: `${childPot.earnedPercent}%` }}
+                                />
+                                {childPot.pendingPercent > 0 && (
+                                  <div
+                                    className="weekly-pot-fill-pending"
+                                    style={{ width: `${childPot.pendingPercent}%` }}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                            <div className="child-goal">
+                              {data.state.goals
+                                .filter((g) => g.childId === m.id)
+                                .slice(0, 1)
+                                .map((g) => (
+                                  <div key={g.id}>
+                                    <div className="goal-caption">
+                                      <span>
+                                        {g.emoji} Saving for {g.title}
+                                      </span>
+                                      <span>{Math.round((g.saved / g.target) * 100)}%</span>
+                                    </div>
+                                    <progress max={g.target} value={g.saved} />
+                                    <div className="goal-amount">
+                                      {money(g.saved)} of {money(g.target)}
+                                    </div>
                                   </div>
-                                  <progress max={g.target} value={g.saved} />
-                                  <div className="goal-amount">
-                                    {money(g.saved)} of {money(g.target)}
-                                  </div>
-                                </div>
-                              ))}
+                                ))}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     {children.length === 0 && !isChild && (
                       <div className="empty-state">
                         Add your first child in Our family to start tracking pocket money.
@@ -1811,6 +1946,52 @@ export function Dashboard({
                     ))}
                   </div>
                 </div>
+
+                {isMultiDayForm && (
+                  <div>
+                    <span className="field-label">How is this reward paid?</span>
+                    <div className="mode-toggle-grid">
+                      <button
+                        type="button"
+                        disabled={
+                          modal === "edit_chore" &&
+                          selected !== null &&
+                          "status" in selected &&
+                          selected.status === "pending"
+                        }
+                        className={`mode-card ${choreRewardModeState === "per_day" ? "active" : ""}`}
+                        onClick={() => setChoreRewardModeState("per_day")}
+                      >
+                        <div>
+                          <strong>Paid each day it’s done</strong>
+                          <span>
+                            {money(formRewardPreviewPence)} per day ·{" "}
+                            {money(formRewardPreviewPence * formScheduledDaysCount)}/week max
+                          </span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          modal === "edit_chore" &&
+                          selected !== null &&
+                          "status" in selected &&
+                          selected.status === "pending"
+                        }
+                        className={`mode-card ${choreRewardModeState === "all_days" ? "active" : ""}`}
+                        onClick={() => setChoreRewardModeState("all_days")}
+                      >
+                        <div>
+                          <strong>Single payment when all days are done</strong>
+                          <span>
+                            Complete all {formScheduledDaysCount} days to earn{" "}
+                            {money(formRewardPreviewPence)} total
+                          </span>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <label className="checkbox-label">
                   <input

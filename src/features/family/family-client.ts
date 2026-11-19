@@ -4,15 +4,20 @@ import type { Database, Json } from "@/integrations/supabase/types";
 import {
   CHILD_THEMES,
   balance,
+  choreRewardMode,
+  choreScheduledDaysCount,
   currentWeekKey,
   defaultHouseholdConfig,
   isChildThemeColor,
   isChoreScheduledOnDay,
+  money,
+  nextDayToComplete,
   today,
   type ChildThemeColor,
   type Chore,
   type ChoreFrequency,
   type ChoreOverride,
+  type ChoreRewardMode,
   type Entry,
   type Family,
   type FamilyState,
@@ -80,6 +85,8 @@ function mergeChoreWithOverride(chore: Chore, override?: ChoreOverride): Chore |
     ...(override.day !== undefined ? { day: override.day } : {}),
     ...(override.days !== undefined ? { days: override.days } : {}),
     ...(override.frequency !== undefined ? { frequency: override.frequency } : {}),
+    ...(override.rewardMode !== undefined ? { rewardMode: override.rewardMode } : {}),
+    ...(override.completedDays !== undefined ? { completedDays: override.completedDays } : {}),
     ...(override.value !== undefined ? { value: override.value } : {}),
     ...(override.emoji !== undefined ? { emoji: override.emoji } : {}),
     ...(override.status !== undefined ? { status: override.status } : {}),
@@ -502,6 +509,11 @@ export async function ensureWeeklyReset(family: Family): Promise<Family> {
 
       // 2. Auto-reset stale recurring chores
       for (const chore of staleChores) {
+        const choreWeek =
+          chore.weekKey ??
+          (chore.submittedAt ? currentWeekKey(new Date(chore.submittedAt)) : undefined);
+        const isNewWeek = Boolean(choreWeek && choreWeek !== thisWeek);
+        const nextCompletedDays = isNewWeek ? [] : (chore.completedDays ?? []);
         const isManagedTarget = !realChildIds.has(chore.childId) || customChoreIds.has(chore.id);
         if (isManagedTarget) {
           nextCustomChores = nextCustomChores.map((c) => {
@@ -510,6 +522,7 @@ export async function ensureWeeklyReset(family: Family): Promise<Family> {
               ...c,
               status: "todo",
               weekKey: thisWeek,
+              completedDays: nextCompletedDays,
             };
             delete resetChore.proof;
             delete resetChore.note;
@@ -525,6 +538,8 @@ export async function ensureWeeklyReset(family: Family): Promise<Family> {
               day: chore.day,
               days: chore.days && chore.days.length > 0 ? chore.days : [chore.day],
               frequency: chore.frequency ?? "weekly",
+              rewardMode: chore.rewardMode ?? "per_day",
+              completedDays: nextCompletedDays,
               emoji: chore.emoji,
               description: chore.description ?? "",
               requirePhoto: Boolean(chore.requirePhoto),
@@ -620,6 +635,10 @@ function buildChoreRpcPayload(
     : [Number(payload["day"] ?? 0)];
   const primaryDay = rawDays[0] ?? Number(payload["day"] ?? 0);
   const frequency = (payload["frequency"] as ChoreFrequency | undefined) ?? "weekly";
+  const rewardMode: ChoreRewardMode = payload["rewardMode"] === "all_days" ? "all_days" : "per_day";
+  const completedDays = Array.isArray(payload["completedDays"])
+    ? (payload["completedDays"] as number[]).map(Number)
+    : [];
 
   const rpcPayload: Record<string, unknown> = {
     title: String(payload["title"] ?? "").trim(),
@@ -628,6 +647,8 @@ function buildChoreRpcPayload(
     day: primaryDay,
     days: rawDays,
     frequency,
+    rewardMode,
+    completedDays,
     emoji: String(payload["emoji"] ?? "🧹"),
     requirePhoto: Boolean(payload["requirePhoto"]),
     weekKey: String(payload["weekKey"] ?? fallbackWeekKey),
@@ -648,6 +669,10 @@ function buildChoreObject(payload: Record<string, unknown>): Chore {
     : [Number(payload["day"] ?? 0)];
   const primaryDay = rawDays[0] ?? Number(payload["day"] ?? 0);
   const frequency = (payload["frequency"] as ChoreFrequency | undefined) ?? "weekly";
+  const rewardMode: ChoreRewardMode = payload["rewardMode"] === "all_days" ? "all_days" : "per_day";
+  const completedDays = Array.isArray(payload["completedDays"])
+    ? (payload["completedDays"] as number[]).map(Number)
+    : [];
 
   const chore: Chore = {
     id: String(payload["id"] ?? crypto.randomUUID()),
@@ -656,6 +681,8 @@ function buildChoreObject(payload: Record<string, unknown>): Chore {
     day: primaryDay,
     days: rawDays,
     frequency,
+    rewardMode,
+    completedDays,
     value: Math.round(Number(payload["value"] ?? 0)),
     emoji: String(payload["emoji"] ?? "🧹"),
     status: "todo",
@@ -959,6 +986,12 @@ export async function executeFamilyAction(
     const nextDay = nextDays[0] ?? Number(payload["day"] ?? existing.day);
     const nextFrequency =
       (payload["frequency"] as ChoreFrequency | undefined) ?? existing.frequency ?? "weekly";
+    const nextRewardMode: ChoreRewardMode =
+      payload["rewardMode"] === "all_days"
+        ? "all_days"
+        : payload["rewardMode"] === "per_day"
+          ? "per_day"
+          : (existing.rewardMode ?? "per_day");
     const nextEmoji = typeof payload["emoji"] === "string" ? payload["emoji"] : existing.emoji;
     const nextDescription =
       typeof payload["description"] === "string"
@@ -981,6 +1014,7 @@ export async function executeFamilyAction(
           day: nextDay,
           days: nextDays,
           frequency: nextFrequency,
+          rewardMode: nextRewardMode,
           emoji: nextEmoji,
           requirePhoto: nextRequirePhoto,
         };
@@ -1001,6 +1035,7 @@ export async function executeFamilyAction(
           day: nextDay,
           days: nextDays,
           frequency: nextFrequency,
+          rewardMode: nextRewardMode,
           emoji: nextEmoji,
           requirePhoto: nextRequirePhoto,
           ...(nextDescription ? { description: nextDescription } : {}),
@@ -1029,7 +1064,8 @@ export async function executeFamilyAction(
         nextTitle !== existing.title ||
         nextValue !== existing.value ||
         nextChildId !== existing.childId ||
-        nextDay !== existing.day;
+        nextDay !== existing.day ||
+        nextRewardMode !== (existing.rewardMode ?? "per_day");
 
       if ((existing.status === "todo" || existing.status === "rejected") && coreFieldsChanged) {
         const rpcPayload = buildChoreRpcPayload(
@@ -1040,6 +1076,8 @@ export async function executeFamilyAction(
             day: nextDay,
             days: nextDays,
             frequency: nextFrequency,
+            rewardMode: nextRewardMode,
+            completedDays: existing.completedDays ?? [],
             emoji: nextEmoji,
             description: nextDescription,
             requirePhoto: nextRequirePhoto,
@@ -1077,6 +1115,7 @@ export async function executeFamilyAction(
           day: nextDay,
           days: nextDays,
           frequency: nextFrequency,
+          rewardMode: nextRewardMode,
           value: nextValue,
           emoji: nextEmoji,
           description: nextDescription,
@@ -1134,6 +1173,7 @@ export async function executeFamilyAction(
             ...c,
             status: "todo",
             weekKey: currentWeekKey(),
+            completedDays: [],
           };
           delete resetChore.proof;
           delete resetChore.note;
@@ -1148,6 +1188,8 @@ export async function executeFamilyAction(
           day: chore.day,
           days: chore.days ?? [chore.day],
           frequency: chore.frequency ?? "weekly",
+          rewardMode: chore.rewardMode ?? "per_day",
+          completedDays: [],
           emoji: chore.emoji,
           description: chore.description ?? "",
           requirePhoto: Boolean(chore.requirePhoto),
@@ -1258,13 +1300,139 @@ export async function executeFamilyAction(
 
     const isCustom = customChores.some((c) => c.id === id);
     const hasLocalPendingOverride = cfg.choreOverrides?.[id]?.status === "pending";
+    const totalDays = choreScheduledDaysCount(chore);
+    const mode = choreRewardMode(chore);
+    const dayDone = nextDayToComplete(chore);
+    const nextCompletedDays = Array.from(new Set([...(chore.completedDays ?? []), dayDone])).sort(
+      (a, b) => a - b,
+    );
+    const isIntermediateAllDays =
+      action === "approve" &&
+      totalDays > 1 &&
+      mode === "all_days" &&
+      nextCompletedDays.length < totalDays;
 
-    if (!isCustom && !hasLocalPendingOverride) {
+    if (isIntermediateAllDays) {
+      const progressNotice: Notice = {
+        id: crypto.randomUUID(),
+        title: chore.title,
+        message: `Day confirmed (${nextCompletedDays.length}/${totalDays}) — complete all ${totalDays} days to earn ${money(chore.value)}!`,
+        childId: chore.childId,
+        date: nowIso,
+        targetRole: "child",
+      };
+      if (isCustom) {
+        const nextCustomChores = customChores.map((c) => {
+          if (c.id !== id) return c;
+          const updated: Chore = {
+            ...c,
+            status: "todo",
+            completedDays: nextCompletedDays,
+          };
+          delete updated.proof;
+          delete updated.note;
+          delete updated.submittedAt;
+          return updated;
+        });
+        await updateMyPreferences(family.userId, (prefs) => ({
+          ...prefs,
+          householdConfig: buildNextHouseholdConfig(
+            family,
+            {
+              customChores: nextCustomChores,
+              customNotifications: [...customNotices, progressNotice],
+            },
+            nowIso,
+          ),
+        }));
+      } else if (hasLocalPendingOverride) {
+        await updateMyPreferences(family.userId, (prefs) => ({
+          ...prefs,
+          householdConfig: buildNextHouseholdConfig(
+            family,
+            {
+              choreOverrides: {
+                ...(cfg.choreOverrides ?? {}),
+                [id]: {
+                  ...(cfg.choreOverrides?.[id] ?? {}),
+                  status: "todo",
+                  completedDays: nextCompletedDays,
+                  proof: "",
+                  note: "",
+                  updatedAt: nowIso,
+                },
+              },
+              customNotifications: [...customNotices, progressNotice],
+            },
+            nowIso,
+          ),
+        }));
+      } else {
+        const rpcPayload = buildChoreRpcPayload({
+          title: chore.title,
+          childId: chore.childId,
+          value: chore.value,
+          day: chore.day,
+          days: chore.days ?? [chore.day],
+          frequency: chore.frequency ?? "weekly",
+          rewardMode: chore.rewardMode ?? "all_days",
+          completedDays: nextCompletedDays,
+          emoji: chore.emoji,
+          description: chore.description ?? "",
+          requirePhoto: Boolean(chore.requirePhoto),
+          seriesId: chore.seriesId ?? chore.id,
+        });
+        const { error } = await supabase.rpc("family_action", {
+          action: "create_chore",
+          payload: rpcPayload as Json,
+        });
+        if (error) throw new Error(error.message);
+
+        await updateMyPreferences(family.userId, (prefs) => ({
+          ...prefs,
+          householdConfig: buildNextHouseholdConfig(
+            family,
+            {
+              choreOverrides: {
+                ...(cfg.choreOverrides ?? {}),
+                [id]: {
+                  deleted: true,
+                  replacedById: `all-days-${Date.now()}`,
+                  updatedAt: nowIso,
+                },
+              },
+              customNotifications: [...customNotices, progressNotice],
+            },
+            nowIso,
+          ),
+        }));
+      }
+      void notifyHouseholdPush({ data: { action: "approve" } }).catch(() => undefined);
+    } else if (!isCustom && !hasLocalPendingOverride) {
       const { error } = await supabase.rpc("family_action", {
         action,
         payload: payload as Json,
       });
       if (error) throw new Error(error.message);
+      if (action === "approve" && totalDays > 1) {
+        await updateMyPreferences(family.userId, (prefs) => ({
+          ...prefs,
+          householdConfig: buildNextHouseholdConfig(
+            family,
+            {
+              choreOverrides: {
+                ...(cfg.choreOverrides ?? {}),
+                [id]: {
+                  ...(cfg.choreOverrides?.[id] ?? {}),
+                  completedDays: nextCompletedDays,
+                  updatedAt: nowIso,
+                },
+              },
+            },
+            nowIso,
+          ),
+        }));
+      }
       void notifyHouseholdPush({ data: { action } }).catch(() => undefined);
     } else {
       const note = typeof payload["note"] === "string" ? payload["note"] : "";
@@ -1299,6 +1467,7 @@ export async function executeFamilyAction(
           return {
             ...c,
             status: nextStatus,
+            ...(action === "approve" ? { completedDays: nextCompletedDays } : {}),
             ...(action === "reject" ? { note } : {}),
           };
         });
@@ -1325,6 +1494,7 @@ export async function executeFamilyAction(
                 [id]: {
                   ...(cfg.choreOverrides?.[id] ?? {}),
                   status: nextStatus,
+                  ...(action === "approve" ? { completedDays: nextCompletedDays } : {}),
                   ...(action === "reject" ? { note } : {}),
                   updatedAt: nowIso,
                 },

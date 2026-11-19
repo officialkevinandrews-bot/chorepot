@@ -86,6 +86,8 @@ export type Member = {
 
 export type ChoreFrequency = "weekly" | "daily" | "once";
 
+export type ChoreRewardMode = "per_day" | "all_days";
+
 export type StarterChoreTemplate = {
   key: string;
   category:
@@ -99,6 +101,7 @@ export type StarterChoreTemplate = {
   frequency: ChoreFrequency;
   day: number;
   days: number[];
+  rewardMode?: ChoreRewardMode;
   requirePhoto: boolean;
   description: string;
   defaultSelected?: boolean;
@@ -268,6 +271,8 @@ export type Chore = {
   description?: string;
   frequency?: ChoreFrequency;
   days?: number[];
+  rewardMode?: ChoreRewardMode;
+  completedDays?: number[];
   requirePhoto?: boolean;
   weekKey?: string;
   seriesId?: string;
@@ -358,6 +363,10 @@ export type WeeklySummary = {
   approvedCount: number;
   unpaidBalance: number;
   totalSaved: number;
+  weeklyMax: number;
+  remainingToEarn: number;
+  earnedPercent: number;
+  pendingPercent: number;
 };
 
 export const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -401,6 +410,43 @@ export function startOfCurrentWeek(date = new Date()): Date {
   start.setDate(start.getDate() - offset);
   start.setHours(0, 0, 0, 0);
   return start;
+}
+
+export function choreScheduledDays(chore: Chore): number[] {
+  if (chore.frequency === "daily") return [0, 1, 2, 3, 4, 5, 6];
+  if (chore.frequency === "once") return [chore.day ?? 0];
+  if (chore.days && chore.days.length > 0) {
+    return Array.from(new Set(chore.days)).sort((a, b) => a - b);
+  }
+  return [chore.day ?? 0];
+}
+
+export function choreScheduledDaysCount(chore: Chore): number {
+  return Math.max(1, choreScheduledDays(chore).length);
+}
+
+export function choreRewardMode(chore: Chore): ChoreRewardMode {
+  if (chore.frequency === "once" || choreScheduledDaysCount(chore) <= 1) {
+    return "all_days";
+  }
+  return chore.rewardMode === "all_days" ? "all_days" : "per_day";
+}
+
+export function choreWeeklyMax(chore: Chore): number {
+  const count = choreScheduledDaysCount(chore);
+  if (count > 1 && choreRewardMode(chore) === "per_day") {
+    return chore.value * count;
+  }
+  return chore.value;
+}
+
+export function nextDayToComplete(chore: Chore, preferDay = today()): number {
+  const scheduled = choreScheduledDays(chore);
+  const done = new Set(chore.completedDays ?? []);
+  if (scheduled.includes(preferDay) && !done.has(preferDay)) {
+    return preferDay;
+  }
+  return scheduled.find((d) => !done.has(d)) ?? preferDay;
 }
 
 export function isChoreScheduledOnDay(chore: Chore, dayIndex: number): boolean {
@@ -480,8 +526,10 @@ export function childWeeklySummary(
   let pendingAmount = 0;
   let pendingCount = 0;
   let approvedCount = 0;
+  let rawChoreMax = 0;
   for (const chore of state.chores) {
     if (chore.childId !== childId) continue;
+    rawChoreMax += choreWeeklyMax(chore);
     if (chore.status === "pending") {
       pendingCount += 1;
       pendingAmount += chore.value;
@@ -494,6 +542,15 @@ export function childWeeklySummary(
     .filter((g) => g.childId === childId)
     .reduce((sum, g) => sum + g.saved, 0);
 
+  const weeklyMax = Math.max(rawChoreMax, earnedThisWeek);
+  const earnedPercent =
+    weeklyMax > 0 ? Math.min(100, Math.round((earnedThisWeek / weeklyMax) * 100)) : 0;
+  const pendingPercent =
+    weeklyMax > 0
+      ? Math.min(100 - earnedPercent, Math.round((pendingAmount / weeklyMax) * 100))
+      : 0;
+  const remainingToEarn = Math.max(0, weeklyMax - earnedThisWeek - pendingAmount);
+
   return {
     earnedThisWeek,
     paidThisWeek,
@@ -502,10 +559,72 @@ export function childWeeklySummary(
     approvedCount,
     unpaidBalance: balance(state, childId),
     totalSaved,
+    weeklyMax,
+    remainingToEarn,
+    earnedPercent,
+    pendingPercent,
+  };
+}
+
+export function familyWeeklyPotSummary(
+  state: FamilyState,
+  childIds: string[],
+  now = new Date(),
+): WeeklySummary {
+  const targetIds =
+    childIds.length > 0
+      ? childIds
+      : Array.from(
+          new Set([...state.chores.map((c) => c.childId), ...state.ledger.map((e) => e.childId)]),
+        );
+
+  let earnedThisWeek = 0;
+  let paidThisWeek = 0;
+  let pendingAmount = 0;
+  let pendingCount = 0;
+  let approvedCount = 0;
+  let unpaidBalance = 0;
+  let totalSaved = 0;
+  let weeklyMax = 0;
+
+  for (const id of targetIds) {
+    const sub = childWeeklySummary(state, id, now);
+    earnedThisWeek += sub.earnedThisWeek;
+    paidThisWeek += sub.paidThisWeek;
+    pendingAmount += sub.pendingAmount;
+    pendingCount += sub.pendingCount;
+    approvedCount += sub.approvedCount;
+    unpaidBalance += sub.unpaidBalance;
+    totalSaved += sub.totalSaved;
+    weeklyMax += sub.weeklyMax;
+  }
+
+  weeklyMax = Math.max(weeklyMax, earnedThisWeek);
+  const earnedPercent =
+    weeklyMax > 0 ? Math.min(100, Math.round((earnedThisWeek / weeklyMax) * 100)) : 0;
+  const pendingPercent =
+    weeklyMax > 0
+      ? Math.min(100 - earnedPercent, Math.round((pendingAmount / weeklyMax) * 100))
+      : 0;
+  const remainingToEarn = Math.max(0, weeklyMax - earnedThisWeek - pendingAmount);
+
+  return {
+    earnedThisWeek,
+    paidThisWeek,
+    pendingAmount,
+    pendingCount,
+    approvedCount,
+    unpaidBalance,
+    totalSaved,
+    weeklyMax,
+    remainingToEarn,
+    earnedPercent,
+    pendingPercent,
   };
 }
 
 const stamp = new Date().toISOString();
+const prevWeekStamp = new Date(Date.now() - 10 * 86400000).toISOString();
 
 export const demo: Family = {
   id: "demo",
@@ -644,7 +763,7 @@ export const demo: Family = {
         id: "e1",
         childId: "oliver",
         title: "This week’s chores",
-        amount: 850,
+        amount: 100,
         type: "earning",
         date: stamp,
       },
@@ -652,7 +771,7 @@ export const demo: Family = {
         id: "e2",
         childId: "amelia",
         title: "This week’s chores",
-        amount: 650,
+        amount: 150,
         type: "earning",
         date: stamp,
       },
@@ -660,17 +779,17 @@ export const demo: Family = {
         id: "e3",
         childId: "oliver",
         title: "Previous savings",
-        amount: 1400,
+        amount: 2150,
         type: "earning",
-        date: stamp,
+        date: prevWeekStamp,
       },
       {
         id: "e4",
         childId: "amelia",
         title: "Previous savings",
-        amount: 1250,
+        amount: 1750,
         type: "earning",
-        date: stamp,
+        date: prevWeekStamp,
       },
     ],
     notifications: [],
@@ -690,6 +809,8 @@ export function demoAction(
       ? (payload["days"] as number[]).map(Number)
       : [Number(payload["day"] ?? 0)];
     const frequency = (payload["frequency"] as ChoreFrequency | undefined) ?? "weekly";
+    const rewardMode: ChoreRewardMode =
+      payload["rewardMode"] === "all_days" ? "all_days" : "per_day";
     const newChore: Chore = {
       id: crypto.randomUUID(),
       title: String(payload["title"] ?? ""),
@@ -697,6 +818,8 @@ export function demoAction(
       day: rawDays[0] ?? Number(payload["day"] ?? 0),
       days: rawDays,
       frequency,
+      rewardMode,
+      completedDays: [],
       value: Number(payload["value"] ?? 0),
       emoji: String(payload["emoji"] ?? "🧹"),
       status: "todo",
@@ -722,6 +845,9 @@ export function demoAction(
     } else if (typeof payload["day"] === "number") {
       chore.day = payload["day"];
     }
+    if (payload["rewardMode"] === "all_days" || payload["rewardMode"] === "per_day") {
+      chore.rewardMode = payload["rewardMode"];
+    }
     if (typeof payload["description"] === "string") {
       if (payload["description"].trim()) chore.description = payload["description"].trim();
       else delete chore.description;
@@ -735,6 +861,7 @@ export function demoAction(
     if (payload["id"] && chore) {
       chore.status = "todo";
       chore.weekKey = currentWeekKey();
+      chore.completedDays = [];
       delete chore.proof;
       delete chore.note;
       delete chore.submittedAt;
@@ -743,6 +870,7 @@ export function demoAction(
         if (c.status === "approved" && c.frequency !== "once") {
           c.status = "todo";
           c.weekKey = currentWeekKey();
+          c.completedDays = [];
           delete c.proof;
           delete c.note;
           delete c.submittedAt;
@@ -764,23 +892,46 @@ export function demoAction(
       targetRole: "parent",
     });
   } else if (chore && action === "approve" && chore.status === "pending") {
-    chore.status = "approved";
-    s.ledger.push({
-      id: crypto.randomUUID(),
-      childId: chore.childId,
-      title: chore.title,
-      amount: chore.value,
-      type: "earning",
-      date: new Date().toISOString(),
-    });
-    s.notifications.push({
-      id: crypto.randomUUID(),
-      title: chore.title,
-      message: "Approved — pocket money earned!",
-      childId: chore.childId,
-      date: new Date().toISOString(),
-      targetRole: "child",
-    });
+    const totalDays = choreScheduledDaysCount(chore);
+    const mode = choreRewardMode(chore);
+    const dayDone = nextDayToComplete(chore);
+    const nextCompletedDays = Array.from(new Set([...(chore.completedDays ?? []), dayDone])).sort(
+      (a, b) => a - b,
+    );
+    chore.completedDays = nextCompletedDays;
+
+    if (totalDays > 1 && mode === "all_days" && nextCompletedDays.length < totalDays) {
+      chore.status = "todo";
+      delete chore.proof;
+      delete chore.note;
+      delete chore.submittedAt;
+      s.notifications.push({
+        id: crypto.randomUUID(),
+        title: chore.title,
+        message: `Day confirmed (${nextCompletedDays.length}/${totalDays}) — complete all ${totalDays} days to earn ${money(chore.value)}!`,
+        childId: chore.childId,
+        date: new Date().toISOString(),
+        targetRole: "child",
+      });
+    } else {
+      chore.status = "approved";
+      s.ledger.push({
+        id: crypto.randomUUID(),
+        childId: chore.childId,
+        title: chore.title,
+        amount: chore.value,
+        type: "earning",
+        date: new Date().toISOString(),
+      });
+      s.notifications.push({
+        id: crypto.randomUUID(),
+        title: chore.title,
+        message: "Approved — pocket money earned!",
+        childId: chore.childId,
+        date: new Date().toISOString(),
+        targetRole: "child",
+      });
+    }
   } else if (chore && action === "reject") {
     chore.status = "rejected";
     chore.note = String(payload["note"] ?? "");

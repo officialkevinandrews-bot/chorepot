@@ -8,6 +8,10 @@ import {
   formatChoreSchedule,
   nextPaydayInfo,
   childWeeklySummary,
+  familyWeeklyPotSummary,
+  choreRewardMode,
+  choreScheduledDaysCount,
+  choreWeeklyMax,
   STARTER_CHORES,
   CHILD_THEMES,
   isChildThemeColor,
@@ -203,5 +207,88 @@ describe("Child theme colours & APK detection", () => {
 
   it("defaults isRunningInApk to false in normal browser environments", () => {
     expect(isRunningInApk()).toBe(false);
+  });
+});
+
+describe("Multi-day reward modes and weekly earnings pot", () => {
+  it("computes choreWeeklyMax for per_day and all_days schedules", () => {
+    const base: Chore = {
+      id: "c-base",
+      title: "Practice reading",
+      childId: "oliver",
+      day: 0,
+      days: [0, 2, 4],
+      frequency: "weekly",
+      value: 50,
+      emoji: "📖",
+      status: "todo",
+    };
+    expect(choreScheduledDaysCount(base)).toBe(3);
+    expect(choreRewardMode(base)).toBe("per_day");
+    expect(choreWeeklyMax(base)).toBe(150);
+
+    const allDays: Chore = { ...base, value: 150, rewardMode: "all_days" };
+    expect(choreRewardMode(allDays)).toBe("all_days");
+    expect(choreWeeklyMax(allDays)).toBe(150);
+
+    const daily: Chore = { ...base, frequency: "daily", rewardMode: "per_day", value: 50 };
+    expect(choreScheduledDaysCount(daily)).toBe(7);
+    expect(choreWeeklyMax(daily)).toBe(350);
+
+    const once: Chore = { ...base, frequency: "once", value: 250 };
+    expect(choreWeeklyMax(once)).toBe(250);
+  });
+
+  it("pays an all_days multi-day chore only after all scheduled days are approved", () => {
+    let s = demoAction(demo.state, "create_chore", {
+      title: "Practice spelling",
+      childId: "oliver",
+      day: 0,
+      days: [0, 2, 4],
+      frequency: "weekly",
+      rewardMode: "all_days",
+      value: 150,
+      emoji: "📝",
+    });
+    const created = s.chores.find((c) => c.title === "Practice spelling");
+    expect(created).toBeDefined();
+    const startBal = balance(s, "oliver");
+
+    // Day 1 approved -> still todo (1/3), no payout yet
+    s = demoAction(s, "complete", { id: created!.id });
+    s = demoAction(s, "approve", { id: created!.id });
+    const afterDay1 = s.chores.find((c) => c.id === created!.id);
+    expect(afterDay1?.status).toBe("todo");
+    expect(afterDay1?.completedDays).toHaveLength(1);
+    expect(balance(s, "oliver")).toBe(startBal);
+
+    // Day 2 approved -> still todo (2/3), no payout yet
+    s = demoAction(s, "complete", { id: created!.id });
+    s = demoAction(s, "approve", { id: created!.id });
+    const afterDay2 = s.chores.find((c) => c.id === created!.id);
+    expect(afterDay2?.status).toBe("todo");
+    expect(afterDay2?.completedDays).toHaveLength(2);
+    expect(balance(s, "oliver")).toBe(startBal);
+
+    // Day 3 approved -> approved (3/3), pays 150p once
+    s = demoAction(s, "complete", { id: created!.id });
+    s = demoAction(s, "approve", { id: created!.id });
+    const afterDay3 = s.chores.find((c) => c.id === created!.id);
+    expect(afterDay3?.status).toBe("approved");
+    expect(afterDay3?.completedDays).toEqual([0, 2, 4]);
+    expect(balance(s, "oliver")).toBe(startBal + 150);
+  });
+
+  it("calculates weeklyMax, earnedPercent, pendingPercent, and remainingToEarn across family", () => {
+    const pot = familyWeeklyPotSummary(demo.state, ["oliver", "amelia"]);
+    // Oliver: 150 + 350 (daily 50*7) + 100 + 250 = 850p; Amelia: 200 + 100 + 50 = 350p => 1200p total max
+    expect(pot.weeklyMax).toBe(1200);
+    // Demo week earnings: 100p (Oliver) + 150p (Amelia) = 250p -> 21%
+    expect(pot.earnedThisWeek).toBe(250);
+    expect(pot.earnedPercent).toBe(21);
+    // Pending: 150p (Oliver) + 200p (Amelia) = 350p -> 29%
+    expect(pot.pendingAmount).toBe(350);
+    expect(pot.pendingPercent).toBe(29);
+    expect(pot.remainingToEarn).toBe(600);
   });
 });
