@@ -7,7 +7,7 @@ import {lovable} from '@/integrations/lovable';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {toast} from 'sonner';
-export function AuthScreen({code}:{code?:string}){
+export function AuthScreen({code}:{code?:string|undefined}){
  const [signup,setSignup]=useState(!!code),[busy,setBusy]=useState(false),[sent,setSent]=useState(false),[forgot,setForgot]=useState(false);const navigate=useNavigate();
  async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();setBusy(true);const f=new FormData(e.currentTarget),email=String(f.get('email')),password=String(f.get('password'));if(code)sessionStorage.setItem('family-invite',code);try{if(forgot){const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin+'/reset-password'});if(error)throw error;setSent(true);}else if(signup){const {data,error}=await supabase.auth.signUp({email,password,options:{data:{name:String(f.get('name'))},emailRedirectTo:window.location.origin}});if(error)throw error;if(data.session)navigate({to:'/dashboard'});else setSent(true);}else{const {error}=await supabase.auth.signInWithPassword({email,password});if(error)throw error;navigate({to:'/dashboard'});}}catch(e){toast.error(e instanceof Error?e.message:'Please try again');}finally{setBusy(false);}}
  async function social(provider:'google'|'lovable'){if(code)sessionStorage.setItem('family-invite',code);const r=await lovable.auth.signInWithOAuth(provider,{redirect_uri:window.location.origin});if(r.error)toast.error(r.error.message);else if(!r.redirected)navigate({to:'/dashboard'});}
