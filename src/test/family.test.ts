@@ -8,6 +8,7 @@ import {
   formatChoreSchedule,
   nextPaydayInfo,
   childWeeklySummary,
+  STARTER_CHORES,
   type Chore,
 } from "../features/family/model";
 
@@ -171,5 +172,20 @@ describe("Payday schedule & weekly summary", () => {
     expect(s.notifications.length).toBeGreaterThan(0);
     const cleared = demoAction(s, "clear_notifications", {});
     expect(cleared.notifications.length).toBe(0);
+  });
+});
+
+describe("Starter chores & managed child templates", () => {
+  it("provides 12 curated starter chores across 4 categories", () => {
+    expect(STARTER_CHORES).toHaveLength(12);
+    const categories = new Set(STARTER_CHORES.map((c) => c.category));
+    expect(categories.size).toBe(4);
+    expect(STARTER_CHORES.some((c) => c.defaultSelected)).toBe(true);
+    for (const item of STARTER_CHORES) {
+      expect(item.value).toBeGreaterThan(0);
+      expect(item.day).toBeGreaterThanOrEqual(0);
+      expect(item.day).toBeLessThanOrEqual(6);
+      expect(item.days.length).toBeGreaterThan(0);
+    }
   });
 });

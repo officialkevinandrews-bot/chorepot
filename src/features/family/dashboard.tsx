@@ -32,6 +32,9 @@ import {
   Mail,
   Trophy,
   Minus,
+  Lock,
+  Tablet,
+  Smartphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,8 +51,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { executeFamilyAction, resolveProofUrl, uploadOrEncodePhotoProof } from "./family-client";
 import { enablePush } from "./push";
 import {
-  demo,
-  demoAction,
   money,
   balance,
   days,
@@ -92,7 +93,7 @@ const choreEmojis = [
 ];
 
 const goalEmojis = ["🧱", "🎨", "🎮", "🚲", "🧸", "⚽", "🎧", "📚", "🛹"];
-
+const childAvatars = ["👧🏼", "🧑🏼‍🚀", "👩🏻‍🎨", "🦊", "🐼", "🦁", "🐸", "🦄"];
 const rewardPresets = [20, 50, 100, 200, 500];
 
 const modalTitles: Record<string, string> = {
@@ -101,7 +102,7 @@ const modalTitles: Record<string, string> = {
   review: "A little check, a big well done",
   reject: "Let’s give it another go",
   complete: "You did it! 🎉",
-  invite: "Grow your family team",
+  invite: "Add or invite family member",
   goal: "What are you dreaming of?",
   edit_goal: "Edit savings goal",
   allocate: "Add to your savings",
@@ -110,25 +111,26 @@ const modalTitles: Record<string, string> = {
   settings: "Your family profile",
   payday: "Choose payday schedule",
   pay: "It’s pocket money time!",
+  unlock_pin: "Enter Parent PIN",
 };
 
-export function Dashboard({
-  family,
-  onRefresh,
-}: {
-  family?: Family | null;
-  onRefresh?: () => void;
-}) {
-  const [data, setData] = useState<Family>(family ?? structuredClone(demo));
+export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: () => void }) {
+  const [data, setData] = useState<Family>(family);
   const [view, setView] = useState("Overview");
   const [child, setChild] = useState("all");
-  const [mode, setMode] = useState("parent");
+  const [kidModeChildId, setKidModeChildId] = useState("");
+  const [pinInput, setPinInput] = useState("");
   const [modal, setModal] = useState<string | null>(null);
   const [selected, setSelected] = useState<Chore | Goal | null>(null);
   const [proof, setProof] = useState<File | null>(null);
   const [proofUrl, setProofUrl] = useState("");
   const [invite, setInvite] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteTab, setInviteTab] = useState<"direct_child" | "link">("direct_child");
+  const [newChildName, setNewChildName] = useState("");
+  const [newChildAvatar, setNewChildAvatar] = useState("👧🏼");
+  const [newChildEmail, setNewChildEmail] = useState("");
+  const [newChildWithCode, setNewChildWithCode] = useState(true);
   const [busy, setBusy] = useState(false);
   const [day, setDay] = useState(today());
   const [mobile, setMobile] = useState(false);
@@ -140,16 +142,18 @@ export function Dashboard({
   const [choreValueStr, setChoreValueStr] = useState("1.00");
   const [choreRequirePhoto, setChoreRequirePhoto] = useState(false);
 
-  // Payday form state
+  // Payday & PIN form state
   const [paydayFreq, setPaydayFreq] = useState<"weekly" | "monthly">("weekly");
   const [paydayDay, setPaydayDay] = useState<number>(4);
+  const [settingsPin, setSettingsPin] = useState("");
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const isDemo = !family;
-  const isChild = family ? data.role === "child" : mode !== "parent";
-  const activeChild = family ? data.userId : mode;
+  const isChildAccount = data.role === "child";
+  const inKidMode = !isChildAccount && Boolean(kidModeChildId);
+  const isChild = isChildAccount || inKidMode;
+  const activeChild = isChildAccount ? data.userId : kidModeChildId;
   const children = data.members.filter((m) => m.role === "child");
   const profile =
     data.members.find((m) => m.id === (isChild ? activeChild : data.userId)) ?? data.members[0];
@@ -168,24 +172,27 @@ export function Dashboard({
   );
   const paydayInfo = nextPaydayInfo(data.config);
   const celebrationsEnabled = data.preferences?.celebrations !== false;
-
-  const visibleNotifications = isDemo
-    ? data.state.notifications.filter((n) => {
-        if (isChild) {
-          return n.targetRole === "child" && n.childId === activeChild;
-        }
-        return n.targetRole === "parent" || !n.targetRole;
-      })
-    : data.state.notifications;
+  const visibleNotifications = inKidMode ? [] : data.state.notifications;
 
   useEffect(() => {
-    if (family) setData(family);
+    setData(family);
   }, [family]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || data.role === "child") return;
+    const saved = localStorage.getItem("chorepot-kid-mode") ?? "";
+    if (saved && data.members.some((m) => m.id === saved && m.role === "child")) {
+      setKidModeChildId(saved);
+    } else if (saved) {
+      localStorage.removeItem("chorepot-kid-mode");
+      setKidModeChildId("");
+    }
+  }, [data.role, data.members]);
 
   useEffect(() => {
     let active = true;
     if (selected && "proof" in selected && selected.proof) {
-      void resolveProofUrl(selected.proof, isDemo).then((url) => {
+      void resolveProofUrl(selected.proof, false).then((url) => {
         if (active) setProofUrl(url);
       });
     } else {
@@ -194,7 +201,7 @@ export function Dashboard({
     return () => {
       active = false;
     };
-  }, [selected, isDemo]);
+  }, [selected]);
 
   function triggerCelebration() {
     if (!celebrationsEnabled) return;
@@ -202,44 +209,33 @@ export function Dashboard({
     setTimeout(() => setCelebrate(false), 2200);
   }
 
+  function handleModeChange(nextId: string) {
+    if (nextId === "") {
+      if (data.config?.parentPin) {
+        setPinInput("");
+        setModal("unlock_pin");
+      } else {
+        setKidModeChildId("");
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("chorepot-kid-mode");
+        }
+        setView("Overview");
+      }
+    } else {
+      setKidModeChildId(nextId);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("chorepot-kid-mode", nextId);
+      }
+      setView("Overview");
+    }
+  }
+
   async function act(action: string, payload: Record<string, unknown>) {
     setBusy(true);
     try {
-      if (isDemo) {
-        if (action === "update_config") {
-          const nextFreq = payload["paydayFrequency"] === "monthly" ? "monthly" : "weekly";
-          const nextDay = Number(payload["paydayDay"] ?? 4);
-          setData((prev) => ({
-            ...prev,
-            config: {
-              ...(prev.config ?? defaultHouseholdConfig),
-              paydayFrequency: nextFreq,
-              paydayDay: nextDay,
-            },
-          }));
-        } else if (action === "update_profile") {
-          const nextName = String(payload["name"] ?? "").trim();
-          const nextAvatar = String(payload["avatar"] ?? "🌱");
-          const nextCelebrations = Boolean(payload["celebrations"]);
-          setData((prev) => ({
-            ...prev,
-            preferences: {
-              ...(prev.preferences ?? {}),
-              celebrations: nextCelebrations,
-            },
-            members: prev.members.map((m) =>
-              m.id === prev.userId ? { ...m, name: nextName, avatar: nextAvatar } : m,
-            ),
-          }));
-        } else {
-          const nextState = demoAction(data.state, action, payload);
-          setData((prev) => ({ ...prev, state: nextState }));
-        }
-      } else {
-        const updatedFamily = await executeFamilyAction(data, action, payload);
-        setData(updatedFamily);
-        onRefresh?.();
-      }
+      const updatedFamily = await executeFamilyAction(data, action, payload);
+      setData(updatedFamily);
+      onRefresh?.();
 
       const successMsg =
         action === "approve"
@@ -256,9 +252,11 @@ export function Dashboard({
                     ? "Chores reset to To do."
                     : action === "delete_goal"
                       ? "Savings goal removed."
-                      : action === "clear_notifications"
-                        ? "Notifications cleared."
-                        : "All saved!";
+                      : action === "remove_managed_child"
+                        ? "Child profile removed."
+                        : action === "clear_notifications"
+                          ? "Notifications cleared."
+                          : "All saved!";
       toast.success(successMsg);
 
       if (["complete", "allocate", "achieve_goal"].includes(action)) {
@@ -278,7 +276,13 @@ export function Dashboard({
     setInvite("");
     setInviteEmail("");
 
-    if (kind === "chore") {
+    if (kind === "invite") {
+      setInviteTab("direct_child");
+      setNewChildName("");
+      setNewChildAvatar("👧🏼");
+      setNewChildEmail("");
+      setNewChildWithCode(true);
+    } else if (kind === "chore") {
       setChoreFrequency("weekly");
       setChoreDays([today()]);
       setChoreValueStr("1.00");
@@ -292,6 +296,7 @@ export function Dashboard({
       const cfg = data.config ?? defaultHouseholdConfig;
       setPaydayFreq(cfg.paydayFrequency);
       setPaydayDay(cfg.paydayDay);
+      setSettingsPin(cfg.parentPin ?? "");
     }
 
     setModal(kind);
@@ -311,6 +316,21 @@ export function Dashboard({
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     const value = (key: string) => String(f.get(key) ?? "");
+
+    if (modal === "unlock_pin") {
+      if (pinInput === (data.config?.parentPin ?? "")) {
+        setKidModeChildId("");
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("chorepot-kid-mode");
+        }
+        setModal(null);
+        setView("Overview");
+        toast.success("Back in Parent view");
+      } else {
+        toast.error("Incorrect Parent PIN");
+      }
+      return;
+    }
 
     if (modal === "chore" || modal === "edit_chore") {
       const selectedDays =
@@ -390,7 +410,7 @@ export function Dashboard({
       let path = "";
       try {
         if (proof) {
-          path = await uploadOrEncodePhotoProof(data.userId, proof, isDemo);
+          path = await uploadOrEncodePhotoProof(data.userId, proof, false);
         }
       } catch (err) {
         setBusy(false);
@@ -399,43 +419,72 @@ export function Dashboard({
       }
       await act("complete", { id: selected.id, proof: path });
     } else if (modal === "invite") {
-      const email = value("email").trim();
-      setInviteEmail(email);
-      if (isDemo) {
-        setInvite("DEMO42");
-        return;
+      setBusy(true);
+      try {
+        if (inviteTab === "direct_child") {
+          const email = newChildEmail.trim();
+          let code = "";
+          if (newChildWithCode) {
+            const { data: generated, error } = await supabase.rpc("family_invite", {
+              invite_role: "child",
+              invite_email: email,
+            });
+            if (error) throw new Error(error.message);
+            code = generated ?? "";
+          }
+          const updated = await executeFamilyAction(data, "add_managed_child", {
+            name: newChildName,
+            avatar: newChildAvatar,
+            email,
+            inviteCode: code,
+          });
+          setData(updated);
+          onRefresh?.();
+          toast.success(`${newChildName.trim()} added to your family!`);
+          if (code) {
+            setInviteEmail(email);
+            setInvite(code);
+          } else {
+            setModal(null);
+          }
+        } else {
+          const email = value("email").trim();
+          const role = value("role");
+          const inviteName = value("inviteName").trim();
+          setInviteEmail(email);
+          const { data: code, error } = await supabase.rpc("family_invite", {
+            invite_role: role,
+            invite_email: email,
+          });
+          if (error) throw new Error(error.message);
+          if (code) {
+            const updated = await executeFamilyAction(data, "save_pending_invite", {
+              name: inviteName || (role === "co_parent" ? "Co-parent" : "Child"),
+              email,
+              role,
+              code,
+            });
+            setData(updated);
+            onRefresh?.();
+            setInvite(code);
+          }
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not save invite");
+      } finally {
+        setBusy(false);
       }
-      const { data: code, error } = await supabase.rpc("family_invite", {
-        invite_role: value("role"),
-        invite_email: email,
-      });
-      if (error) toast.error(error.message);
-      else setInvite(code ?? "");
     } else if (modal === "payday") {
       await act("update_config", {
         paydayFrequency: paydayFreq,
         paydayDay: paydayDay,
       });
     } else if (modal === "settings") {
-      const celebrationsChecked = f.get("celebrations") === "on";
-      if (isDemo) {
-        await act("update_profile", {
-          name: value("name"),
-          avatar: value("avatar"),
-          celebrations: celebrationsChecked,
-        });
-        if (!isChild) {
-          setData((prev) => ({
-            ...prev,
-            config: {
-              ...(prev.config ?? defaultHouseholdConfig),
-              paydayFrequency: paydayFreq,
-              paydayDay: paydayDay,
-            },
-          }));
-        }
+      if (settingsPin && !/^\d{4}$/.test(settingsPin)) {
+        toast.error("Parent PIN must be 4 digits (or leave it blank)");
         return;
       }
+      const celebrationsChecked = f.get("celebrations") === "on";
       setBusy(true);
       try {
         let latestFamily = await executeFamilyAction(data, "update_profile", {
@@ -447,6 +496,7 @@ export function Dashboard({
           latestFamily = await executeFamilyAction(latestFamily, "update_config", {
             paydayFrequency: paydayFreq,
             paydayDay: paydayDay,
+            parentPin: settingsPin,
           });
         }
         setData(latestFamily);
@@ -466,6 +516,9 @@ export function Dashboard({
   async function logout() {
     await queryClient.cancelQueries();
     queryClient.clear();
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("chorepot-kid-mode");
+    }
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
   }
@@ -607,7 +660,7 @@ export function Dashboard({
   }
 
   const familyInviteOrigin =
-    typeof window === "undefined" ? "https://example.com" : window.location.origin;
+    typeof window === "undefined" ? "https://chorepot.app" : window.location.origin;
 
   return (
     <div className="app-shell">
@@ -664,23 +717,21 @@ export function Dashboard({
             </strong>
             <p>Growing good habits, together.</p>
           </div>
-          <Button variant="ghost" className="nav-button" onClick={() => open("settings")}>
-            <Settings />
-            Settings
-          </Button>
+          {!inKidMode && (
+            <Button variant="ghost" className="nav-button" onClick={() => open("settings")}>
+              <Settings />
+              Settings
+            </Button>
+          )}
           <div className="sidebar-profile">
             <span className="avatar">{profile?.avatar}</span>
             <div>
               <strong>{profile?.name}</strong>
-              <small>{isChild ? "Super helper" : "Parent account"}</small>
+              <small>
+                {inKidMode ? "Kid Mode active" : isChild ? "Super helper" : "Parent account"}
+              </small>
             </div>
-            {isDemo ? (
-              <Button variant="ghost" size="icon" aria-label="Sign in" asChild>
-                <Link to="/auth">
-                  <LogOut />
-                </Link>
-              </Button>
-            ) : (
+            {!inKidMode && (
               <Button variant="ghost" size="icon" aria-label="Sign out" onClick={logout}>
                 <LogOut />
               </Button>
@@ -706,25 +757,22 @@ export function Dashboard({
             </span>
           </div>
           <div className="flex items-center gap-3">
-            {isDemo ? (
+            {data.role !== "child" ? (
               <select
                 className="mode-select"
-                aria-label="Preview as"
-                value={mode}
-                onChange={(e) => {
-                  setMode(e.target.value);
-                  setView("Overview");
-                }}
+                aria-label="Switch view"
+                value={kidModeChildId}
+                onChange={(e) => handleModeChange(e.target.value)}
               >
-                <option value="parent">Parent view</option>
+                <option value="">Parent view</option>
                 {children.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name}’s view
+                    {c.name}’s view (Kid Mode)
                   </option>
                 ))}
               </select>
             ) : (
-              <span className="parent-chip">{isChild ? "Child view" : "Parent view"}</span>
+              <span className="parent-chip">Child view</span>
             )}
             <Button
               variant="ghost"
@@ -741,6 +789,27 @@ export function Dashboard({
         </header>
 
         <main className="dashboard">
+          {inKidMode && (
+            <div className="demo-banner">
+              <span>
+                <Tablet size={14} /> Kid Mode: Viewing as <strong>{profile?.name}</strong>
+              </span>
+              <button
+                type="button"
+                className="font-bold underline"
+                onClick={() => handleModeChange("")}
+              >
+                {data.config?.parentPin ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Lock size={12} /> Exit Kid Mode
+                  </span>
+                ) : (
+                  "Return to Parent view"
+                )}
+              </button>
+            </div>
+          )}
+
           <div className="page-heading">
             <div>
               <div className="eyebrow">A LITTLE TEAMWORK GOES A LONG WAY</div>
@@ -769,17 +838,6 @@ export function Dashboard({
               </Button>
             )}
           </div>
-
-          {isDemo && (
-            <div className="demo-banner">
-              <span>
-                <Sprout size={14} /> You’re exploring the Thompson family.
-              </span>
-              <Link to="/auth">
-                Create your family <ArrowUpRight size={14} />
-              </Link>
-            </div>
-          )}
 
           {view === "Overview" && (
             <>
@@ -934,7 +992,7 @@ export function Dashboard({
                         todays.map(choreRow)
                       ) : (
                         <div className="empty-state">
-                          No chores today. Enjoy a little family time!
+                          No chores scheduled today. Enjoy a little family time!
                         </div>
                       )}
                     </div>
@@ -1004,6 +1062,11 @@ export function Dashboard({
                           </div>
                         </div>
                       ))}
+                    {children.length === 0 && !isChild && (
+                      <div className="empty-state">
+                        Add your first child in Our family to start tracking pocket money.
+                      </div>
+                    )}
                   </section>
 
                   <section className="piggy-banner">
@@ -1308,25 +1371,87 @@ export function Dashboard({
                 {!isChild && (
                   <Button onClick={() => open("invite")}>
                     <Plus />
-                    Invite family member
+                    Add or invite member
                   </Button>
                 )}
               </div>
               <div className="family-grid">
                 {data.members.map((m) => (
                   <div className="member-card" key={m.id}>
-                    <span className="child-avatar">{m.avatar}</span>
+                    <div className="flex items-start justify-between">
+                      <span className="child-avatar">{m.avatar}</span>
+                      {!isChild && m.isManaged && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Remove ${m.name}`}
+                          disabled={busy}
+                          onClick={() => act("remove_managed_child", { id: m.id })}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      )}
+                    </div>
                     <h3>{m.name}</h3>
                     <p>
                       {m.role === "child"
-                        ? "Little helper"
+                        ? m.isManaged
+                          ? "Little helper · Kid Mode"
+                          : "Little helper · Own device"
                         : m.role === "co_parent"
                           ? "Co-parent"
                           : "Primary parent"}
                     </p>
+                    {!isChild && m.isManaged && m.inviteCode && (
+                      <div className="mt-2 flex items-center gap-2 text-xs">
+                        <span className="code-pill">{m.inviteCode}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => shareInvite(m.inviteCode!, "whatsapp", m.email ?? "")}
+                        >
+                          <MessageCircle size={13} /> Share
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
+
+              {!isChild && (data.config?.pendingInvites?.length ?? 0) > 0 && (
+                <div className="mt-6">
+                  <h3 className="mb-3">Pending invites</h3>
+                  <div className="added-list">
+                    {(data.config?.pendingInvites ?? []).map((inv) => (
+                      <div className="added-chip" key={inv.id}>
+                        <div className="min-w-0 flex-1">
+                          <strong>
+                            {inv.name} ({inv.role === "co_parent" ? "Co-parent" : "Child"})
+                          </strong>
+                          <small>
+                            {inv.email || "Share link or code"} · Code: <strong>{inv.code}</strong>
+                          </small>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => shareInvite(inv.code, "whatsapp", inv.email ?? "")}
+                        >
+                          <MessageCircle size={13} /> WhatsApp
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => shareInvite(inv.code, "email", inv.email ?? "")}
+                        >
+                          <Mail size={13} /> Email
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {!isChild && (
                 <div className="family-code">
                   <QRCodeSVG value={`${familyInviteOrigin}/auth?code=${data.code}`} size={100} />
@@ -1403,14 +1528,37 @@ export function Dashboard({
             <DialogTitle>{modalTitles[modal ?? ""] ?? ""}</DialogTitle>
             <DialogDescription>
               {modal === "invite"
-                ? "Share a secure link, WhatsApp message, or code with your family."
+                ? "Add a child directly for Kid Mode, or create an invite link for their own device."
                 : modal === "complete"
                   ? "Your parent will give it a thumbs up before you earn your pocket money."
-                  : "Little steps, happy families."}
+                  : modal === "unlock_pin"
+                    ? "Enter your 4-digit Parent PIN to return to Parent view."
+                    : "Little steps, happy families."}
             </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={submit} className="dialog-form">
+            {modal === "unlock_pin" && (
+              <>
+                <label>
+                  4-digit Parent PIN
+                  <Input
+                    inputMode="numeric"
+                    type="password"
+                    maxLength={4}
+                    required
+                    autoFocus
+                    placeholder="••••"
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                  />
+                </label>
+                <Button>
+                  <Lock size={14} /> Unlock Parent view
+                </Button>
+              </>
+            )}
+
             {(modal === "chore" || modal === "edit_chore") && (
               <>
                 {modal === "edit_chore" &&
@@ -1589,7 +1737,9 @@ export function Dashboard({
                 </label>
 
                 {!children.length && (
-                  <p className="text-destructive text-sm">Invite a child before creating chores.</p>
+                  <p className="text-destructive text-sm">
+                    Add a child in Our family before creating chores.
+                  </p>
                 )}
                 <Button disabled={busy || !children.length}>
                   {modal === "edit_chore" ? (
@@ -1886,18 +2036,107 @@ export function Dashboard({
 
             {modal === "invite" && (
               <>
-                <label>
-                  Invite as
-                  <select name="role">
-                    <option value="child">Child</option>
-                    <option value="co_parent">Co-parent</option>
-                  </select>
-                </label>
-                <label>
-                  Email address (optional)
-                  <Input name="email" type="email" placeholder="family@example.com" />
-                </label>
-                <Button type="submit">Create invite link</Button>
+                <div className="mode-toggle-grid">
+                  <button
+                    type="button"
+                    className={`mode-card ${inviteTab === "direct_child" ? "active" : ""}`}
+                    onClick={() => {
+                      setInviteTab("direct_child");
+                      setInvite("");
+                    }}
+                  >
+                    <Tablet size={16} />
+                    <div>
+                      <strong>Add child (no email)</strong>
+                      <span>Ready for chores & Kid Mode right away</span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className={`mode-card ${inviteTab === "link" ? "active" : ""}`}
+                    onClick={() => {
+                      setInviteTab("link");
+                      setInvite("");
+                    }}
+                  >
+                    <Smartphone size={16} />
+                    <div>
+                      <strong>Invite link / code</strong>
+                      <span>For co-parent or child’s own device</span>
+                    </div>
+                  </button>
+                </div>
+
+                {inviteTab === "direct_child" ? (
+                  <>
+                    <label>
+                      Child’s name
+                      <Input
+                        required
+                        placeholder="e.g. Lily"
+                        value={newChildName}
+                        onChange={(e) => setNewChildName(e.target.value)}
+                      />
+                    </label>
+                    <div>
+                      <span className="field-label">Choose avatar</span>
+                      <div className="avatar-row">
+                        {childAvatars.map((av) => (
+                          <button
+                            key={av}
+                            type="button"
+                            className={`avatar-pick ${newChildAvatar === av ? "active" : ""}`}
+                            onClick={() => setNewChildAvatar(av)}
+                          >
+                            {av}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <label>
+                      Child’s email address (optional)
+                      <Input
+                        type="email"
+                        placeholder="Leave blank if no email address"
+                        value={newChildEmail}
+                        onChange={(e) => setNewChildEmail(e.target.value)}
+                      />
+                    </label>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={newChildWithCode}
+                        onChange={(e) => setNewChildWithCode(e.target.checked)}
+                      />
+                      Also create a 6-character invite code for later
+                    </label>
+                    <Button type="submit" disabled={busy}>
+                      <Plus /> Add child
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <label>
+                      Invite as
+                      <select name="role">
+                        <option value="child">Child</option>
+                        <option value="co_parent">Co-parent</option>
+                      </select>
+                    </label>
+                    <label>
+                      Their name (optional)
+                      <Input name="inviteName" placeholder="e.g. James" />
+                    </label>
+                    <label>
+                      Email address (optional)
+                      <Input name="email" type="email" placeholder="family@example.com" />
+                    </label>
+                    <Button type="submit" disabled={busy}>
+                      Create invite link
+                    </Button>
+                  </>
+                )}
+
                 {invite && (
                   <div className="invite-result">
                     <QRCodeSVG size={130} value={`${familyInviteOrigin}/auth?code=${invite}`} />
@@ -2059,15 +2298,23 @@ export function Dashboard({
                         />
                       </label>
                     )}
+                    <label>
+                      <span className="flex items-center gap-1.5">
+                        <Lock size={13} /> Optional 4-digit Parent PIN (for Kid Mode)
+                      </span>
+                      <Input
+                        inputMode="numeric"
+                        maxLength={4}
+                        placeholder="Leave blank for no PIN"
+                        value={settingsPin}
+                        onChange={(e) =>
+                          setSettingsPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+                        }
+                      />
+                    </label>
                   </>
                 )}
-                {isDemo ? (
-                  <Button type="button" asChild>
-                    <Link to="/auth">Create your family</Link>
-                  </Button>
-                ) : (
-                  <Button disabled={busy}>Save profile</Button>
-                )}
+                <Button disabled={busy}>Save profile</Button>
                 <p className="text-sm text-muted-foreground">
                   On your phone, add Chorepot to your home screen from your browser’s menu.
                 </p>

@@ -1,5 +1,7 @@
 # Family chore app
-- [x] Parent and child dashboards, weekly chores and approval loop
+- [x] Public landing page with feature walkthrough & real app screenshots
+- [x] Guided 4-step family setup wizard with starter chores & no-email child profiles
+- [x] Parent and child dashboards, Kid Mode with Parent PIN, weekly chores and approval loop
 - [x] Household accounts, invitations and role-based access
 - [x] Family profiles with names, avatars and preferences
 - [x] Balances, savings goals, payday and ledger

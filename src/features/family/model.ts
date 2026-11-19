@@ -1,3 +1,22 @@
+export type ManagedChild = {
+  id: string;
+  name: string;
+  avatar: string;
+  role: "child";
+  email?: string;
+  inviteCode?: string;
+  isManaged: true;
+};
+
+export type PendingInvite = {
+  id: string;
+  name: string;
+  email?: string;
+  role: "child" | "co_parent";
+  code: string;
+  createdAt: string;
+};
+
 export type MemberPreferences = {
   celebrations?: boolean;
   clearedNotificationsAt?: string;
@@ -11,10 +30,182 @@ export type Member = {
   name: string;
   avatar: string;
   role: string;
+  email?: string;
+  inviteCode?: string;
+  isManaged?: boolean;
   preferences?: MemberPreferences;
 };
 
 export type ChoreFrequency = "weekly" | "daily" | "once";
+
+export type StarterChoreTemplate = {
+  key: string;
+  category:
+    | "Homework & Learning"
+    | "Bedroom & Daily Routine"
+    | "Mealtime & Kitchen Helpers"
+    | "Pets, Garden & Weekend Bonus";
+  title: string;
+  emoji: string;
+  value: number;
+  frequency: ChoreFrequency;
+  day: number;
+  days: number[];
+  requirePhoto: boolean;
+  description: string;
+  defaultSelected?: boolean;
+};
+
+export const STARTER_CHORES: StarterChoreTemplate[] = [
+  {
+    key: "english-homework",
+    category: "Homework & Learning",
+    title: "Complete English homework",
+    emoji: "📚",
+    value: 50,
+    frequency: "weekly",
+    day: 2,
+    days: [2],
+    requirePhoto: true,
+    description: "Finish your English worksheet or writing task and snap a photo",
+    defaultSelected: true,
+  },
+  {
+    key: "maths-homework",
+    category: "Homework & Learning",
+    title: "Complete Maths homework",
+    emoji: "🔢",
+    value: 50,
+    frequency: "weekly",
+    day: 3,
+    days: [3],
+    requirePhoto: true,
+    description: "Complete your Maths practice and show your working out",
+  },
+  {
+    key: "reading-20m",
+    category: "Homework & Learning",
+    title: "Read for 20 minutes",
+    emoji: "📖",
+    value: 50,
+    frequency: "weekly",
+    day: 0,
+    days: [0, 1, 2, 3, 4],
+    requirePhoto: false,
+    description: "Read your school reading book or a chapter book",
+  },
+  {
+    key: "instrument-practice",
+    category: "Homework & Learning",
+    title: "Practice instrument or spellings",
+    emoji: "🎹",
+    value: 50,
+    frequency: "weekly",
+    day: 0,
+    days: [0, 2, 4],
+    requirePhoto: false,
+    description: "15 minutes of focused practice",
+  },
+  {
+    key: "make-bed",
+    category: "Bedroom & Daily Routine",
+    title: "Make your bed & tidy floor",
+    emoji: "🛏️",
+    value: 50,
+    frequency: "daily",
+    day: 0,
+    days: [0, 1, 2, 3, 4, 5, 6],
+    requirePhoto: false,
+    description: "Straighten duvet and put dirty clothes in the laundry basket",
+    defaultSelected: true,
+  },
+  {
+    key: "bedroom-tidy",
+    category: "Bedroom & Daily Routine",
+    title: "Full bedroom tidy & desk clean",
+    emoji: "🧹",
+    value: 150,
+    frequency: "weekly",
+    day: 5,
+    days: [5],
+    requirePhoto: true,
+    description: "Put toys and books away, clear floor, and take a quick photo",
+    defaultSelected: true,
+  },
+  {
+    key: "clean-laundry",
+    category: "Bedroom & Daily Routine",
+    title: "Put away clean laundry",
+    emoji: "🧺",
+    value: 100,
+    frequency: "weekly",
+    day: 6,
+    days: [6],
+    requirePhoto: false,
+    description: "Fold and put clean clothes neatly into drawers",
+  },
+  {
+    key: "pack-school-bag",
+    category: "Bedroom & Daily Routine",
+    title: "Pack school bag & lay out uniform",
+    emoji: "🎒",
+    value: 50,
+    frequency: "weekly",
+    day: 0,
+    days: [0, 1, 2, 3, 6],
+    requirePhoto: false,
+    description: "Check homework bag, water bottle, and uniform for tomorrow",
+  },
+  {
+    key: "dinner-table",
+    category: "Mealtime & Kitchen Helpers",
+    title: "Set & clear the dinner table",
+    emoji: "🍽️",
+    value: 50,
+    frequency: "daily",
+    day: 0,
+    days: [0, 1, 2, 3, 4, 5, 6],
+    requirePhoto: false,
+    description: "Lay out cutlery before dinner and bring plates to the sink after",
+    defaultSelected: true,
+  },
+  {
+    key: "recycling",
+    category: "Mealtime & Kitchen Helpers",
+    title: "Take out the recycling",
+    emoji: "♻️",
+    value: 100,
+    frequency: "weekly",
+    day: 3,
+    days: [3],
+    requirePhoto: false,
+    description: "Sort cardboard and plastics into the recycling bin",
+  },
+  {
+    key: "feed-pets",
+    category: "Pets, Garden & Weekend Bonus",
+    title: "Feed pets & fresh water",
+    emoji: "🐈",
+    value: 50,
+    frequency: "daily",
+    day: 0,
+    days: [0, 1, 2, 3, 4, 5, 6],
+    requirePhoto: false,
+    description: "Give food and refill the fresh water bowl",
+  },
+  {
+    key: "wash-car",
+    category: "Pets, Garden & Weekend Bonus",
+    title: "Help wash the family car",
+    emoji: "🚙",
+    value: 250,
+    frequency: "once",
+    day: 6,
+    days: [6],
+    requirePhoto: true,
+    description: "Sponge, rinse, and help dry the car",
+  },
+];
 
 export type Chore = {
   id: string;
@@ -60,6 +251,13 @@ export type GoalOverride = Partial<Goal> & {
 export type HouseholdConfig = {
   paydayFrequency: "weekly" | "monthly";
   paydayDay: number;
+  onboardingCompleted?: boolean;
+  parentPin?: string;
+  managedChildren?: ManagedChild[];
+  pendingInvites?: PendingInvite[];
+  customChores?: Chore[];
+  customLedger?: Entry[];
+  customNotifications?: Notice[];
   choreOverrides?: Record<string, ChoreOverride>;
   goalOverrides?: Record<string, GoalOverride>;
   customGoals?: Goal[];
