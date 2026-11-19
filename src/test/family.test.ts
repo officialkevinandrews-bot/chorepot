@@ -16,6 +16,7 @@ import {
   CHORE_CATEGORIES,
   CHORE_PRIORITIES,
   calculateChildBudgetSplit,
+  choreSplitWeeklyWeight,
   resolveChoreCategory,
   resolveChorePriority,
   getChoreCategoryInfo,
@@ -343,9 +344,71 @@ describe("4-star priority system & exact-1p weekly budget splitter", () => {
   it("provides 4 priority levels and resolves defaults cleanly", () => {
     expect(CHORE_PRIORITIES.map((p) => p.level)).toEqual([1, 2, 3, 4]);
     expect(resolveChorePriority({ title: "Brush teeth morning & night" })).toBe(1);
+    expect(resolveChorePriority({ title: "Pack school bag & water bottle the night before" })).toBe(
+      1,
+    );
+    expect(resolveChorePriority({ title: "Lay out school uniform / clothes for tomorrow" })).toBe(
+      1,
+    );
     expect(resolveChorePriority({ title: "Set the table for dinner" })).toBe(2);
     expect(resolveChorePriority({ title: "Complete English homework" })).toBe(3);
     expect(resolveChorePriority({ title: "Hoover the living room" })).toBe(4);
+    expect(STARTER_CHORES.find((t) => t.key === "pack-school-bag")?.rewardMode).toBe("per_day");
+    expect(STARTER_CHORES.find((t) => t.key === "lay-out-uniform")?.rewardMode).toBe("per_day");
+  });
+
+  it("caps multi-day inflation for Quick Habits while keeping Big Effort uncapped", () => {
+    expect(choreSplitWeeklyWeight(1, 5, "per_day")).toBeCloseTo(1.2);
+    expect(choreSplitWeeklyWeight(4, 5, "per_day")).toBe(20);
+
+    const chores: Chore[] = [
+      {
+        id: "bag",
+        title: "Pack school bag",
+        childId: "child-1",
+        day: 0,
+        days: [0, 1, 2, 3, 6],
+        frequency: "weekly",
+        rewardMode: "per_day",
+        priority: 1,
+        value: 0,
+        emoji: "🎒",
+        status: "todo",
+      },
+      {
+        id: "maths",
+        title: "Complete Maths homework",
+        childId: "child-1",
+        day: 2,
+        days: [2],
+        frequency: "weekly",
+        priority: 3,
+        value: 0,
+        emoji: "🔢",
+        status: "todo",
+      },
+      {
+        id: "tidy",
+        title: "Full bedroom tidy",
+        childId: "child-1",
+        day: 5,
+        days: [5],
+        frequency: "weekly",
+        priority: 4,
+        value: 0,
+        emoji: "🧹",
+        status: "todo",
+      },
+    ];
+
+    const res = calculateChildBudgetSplit(chores, "child-1", 500, "overwrite_all");
+    expect(res.allocatedWeeklyTotalPence).toBe(500);
+    const bag = res.allocations.find((a) => a.choreId === "bag")!;
+    const maths = res.allocations.find((a) => a.choreId === "maths")!;
+    const tidy = res.allocations.find((a) => a.choreId === "tidy")!;
+    expect(bag.newValue).toBeGreaterThan(0);
+    expect(bag.newWeeklyMax).toBeLessThan(maths.newWeeklyMax);
+    expect(maths.newWeeklyMax).toBeLessThan(tidy.newWeeklyMax);
   });
 
   it("splits a child weekly budget to the exact 1p weighted by priority and frequency", () => {

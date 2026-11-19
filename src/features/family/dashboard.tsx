@@ -2619,7 +2619,13 @@ export function Dashboard({
                                 </div>
                                 <small className="block text-[11px] text-muted-foreground">
                                   {alloc.daysCount > 1 && alloc.rewardMode === "per_day"
-                                    ? `${alloc.daysCount} days/wk · paid each day`
+                                    ? `${alloc.daysCount} days/wk · paid each day${
+                                        prio === 1
+                                          ? " · capped weekly share"
+                                          : prio === 4
+                                            ? " · uncapped daily pay"
+                                            : ""
+                                      }`
                                     : alloc.daysCount > 1
                                       ? `${alloc.daysCount} days/wk · single weekly payout`
                                       : formatChoreSchedule(ch)}

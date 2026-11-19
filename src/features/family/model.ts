@@ -188,30 +188,30 @@ export const CHORE_PRIORITIES: ChorePriorityInfo[] = [
   {
     level: 1,
     stars: "⭐",
-    label: "1× Quick Habit",
+    label: "1× Quick Habit (capped multi-day)",
     shortLabel: "Quick Habit",
-    description: "Fast 1-minute daily habits",
+    description: "1–2 min routine (bag, uniform, teeth, bed) — capped weekly share",
   },
   {
     level: 2,
     stars: "⭐⭐",
-    label: "2× Standard",
-    shortLabel: "Standard",
-    description: "Everyday family & home tasks",
+    label: "2× Light Chore",
+    shortLabel: "Light Chore",
+    description: "5–10 min task (table, pets, plants, bins) — moderate daily boost",
   },
   {
     level: 3,
     stars: "⭐⭐⭐",
-    label: "3× Important",
-    shortLabel: "Important",
-    description: "Key responsibilities & homework",
+    label: "3× Solid Effort",
+    shortLabel: "Solid Effort",
+    description: "15–20 min task (homework, reading, dishwasher) — strong daily boost",
   },
   {
     level: 4,
     stars: "⭐⭐⭐⭐",
-    label: "4× Big Effort",
+    label: "4× Big Effort (uncapped)",
     shortLabel: "Big Effort",
-    description: "Heavy cleaning, big jobs & top priorities",
+    description: "30+ min big job (bedroom tidy, hoover, car) — full uncapped daily pay",
   },
 ];
 
@@ -236,21 +236,25 @@ export function resolveChorePriority(chore: {
     return 4;
   }
   if (
-    /homework|math|english|dishwasher|recycl|pack.*bag|prepare dinner|cook|bake|quiz|coding|foodbank|bedsheets/.test(
+    /make.*bed|brush teeth|dirty clothes|basket|pack school bag|lay out.*uniform|unpack school bag|wet towel|brush hair|pe kit|sofa cushion|energy detective|close curtain|collect post|on charge downstairs|reusable.*bag|empty bedroom bin|pack.*club kit/.test(
+      t,
+    )
+  ) {
+    return 1;
+  }
+  if (
+    /homework|math|english|dishwasher|recycl|prepare dinner|cook|bake|quiz|coding|foodbank|bedsheets|instrument|read a book/.test(
       t,
     )
   ) {
     return 3;
-  }
-  if (/brush teeth|basket|post|curtain|towel|lights|chargers|cushions|unpack/.test(t)) {
-    return 1;
   }
   if (typeof chore.value === "number" && chore.value >= 200) return 4;
   if (typeof chore.value === "number" && chore.value >= 125) return 3;
   if (
     typeof chore.value === "number" &&
     chore.value > 0 &&
-    chore.value <= 30 &&
+    chore.value <= 20 &&
     chore.frequency === "daily"
   ) {
     return 1;
@@ -283,11 +287,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Self Care & Personal Space",
     title: "Make your bed neatly",
     emoji: "🛏️",
-    value: 50,
+    value: 10,
     frequency: "daily",
     day: 0,
     days: [0, 1, 2, 3, 4, 5, 6],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "Pull up the duvet, fluff your pillow, and straighten teddies",
     defaultSelected: true,
@@ -298,11 +303,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Self Care & Personal Space",
     title: "Brush teeth morning & night without reminders",
     emoji: "🦷",
-    value: 100,
+    value: 10,
     frequency: "daily",
     day: 0,
     days: [0, 1, 2, 3, 4, 5, 6],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "2 minutes morning and bedtime every single day",
   },
@@ -312,11 +318,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Self Care & Personal Space",
     title: "Put dirty clothes in the laundry basket",
     emoji: "🧺",
-    value: 50,
+    value: 10,
     frequency: "daily",
     day: 0,
     days: [0, 1, 2, 3, 4, 5, 6],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "Turn clothes the right way out and pop them in the basket",
   },
@@ -379,11 +386,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Self Care & Personal Space",
     title: "Pack school bag & water bottle the night before",
     emoji: "🎒",
-    value: 100,
+    value: 10,
     frequency: "weekly",
     day: 0,
     days: [0, 1, 2, 3, 6],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "Check homework folder, reading book, and washed water bottle",
   },
@@ -393,11 +401,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Self Care & Personal Space",
     title: "Lay out school uniform / clothes for tomorrow",
     emoji: "👔",
-    value: 75,
+    value: 10,
     frequency: "weekly",
     day: 0,
     days: [0, 1, 2, 3, 6],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "Set out jumper, trousers/skirt, socks, and shoes before bed",
   },
@@ -486,11 +495,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Self Care & Personal Space",
     title: "Shower/bath and hang up wet towel properly",
     emoji: "🚿",
-    value: 100,
+    value: 10,
     frequency: "daily",
     day: 0,
     days: [0, 1, 2, 3, 4, 5, 6],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "Hang your towel on the rail to dry instead of leaving it on the floor",
   },
@@ -500,11 +510,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Self Care & Personal Space",
     title: "Brush hair & get dressed on time every morning",
     emoji: "🪮",
-    value: 75,
+    value: 10,
     frequency: "weekly",
     day: 0,
     days: [0, 1, 2, 3, 4],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "Ready with hair brushed and shoes on before leaving time",
   },
@@ -692,11 +703,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "House Care & Shared Spaces",
     title: "Fluff sofa cushions & fold living room throws",
     emoji: "🛋️",
-    value: 75,
+    value: 10,
     frequency: "daily",
     day: 0,
     days: [0, 1, 2, 3, 4, 5, 6],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "Straighten sofa cushions, fold blankets, and gather remotes",
   },
@@ -829,11 +841,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Eco, Plants, Pets & Outings",
     title: "Energy Detective: switch off lights & chargers before bed",
     emoji: "💡",
-    value: 100,
+    value: 10,
     frequency: "daily",
     day: 0,
     days: [0, 1, 2, 3, 4, 5, 6],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "Do an evening check around every room to save electricity",
   },
@@ -843,11 +856,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Eco, Plants, Pets & Outings",
     title: "Close curtains & blinds at dusk to keep warmth in",
     emoji: "🌇",
-    value: 50,
+    value: 10,
     frequency: "daily",
     day: 0,
     days: [0, 1, 2, 3, 4, 5, 6],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "Draw curtains around the flat or house before it gets dark",
   },
@@ -1193,11 +1207,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Learning, Life Skills & Family",
     title: "Practice weekly spellings or times tables",
     emoji: "✏️",
-    value: 125,
+    value: 25,
     frequency: "weekly",
     day: 0,
     days: [0, 1, 2, 3],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 2,
     requirePhoto: false,
     description: "Complete 10 minutes of spelling or TT Rockstars/maths facts",
   },
@@ -1274,11 +1289,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Learning, Life Skills & Family",
     title: "Put tablet/phone on charge downstairs before bed",
     emoji: "📱",
-    value: 150,
+    value: 15,
     frequency: "daily",
     day: 0,
     days: [0, 1, 2, 3, 4, 5, 6],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "Plug screens in outside the bedroom 30 minutes before sleep",
   },
@@ -1340,11 +1356,12 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
     category: "Learning, Life Skills & Family",
     title: "Check calendar & pack swimming/club kit night before",
     emoji: "🏊",
-    value: 100,
+    value: 25,
     frequency: "weekly",
     day: 0,
     days: [0, 3],
-    rewardMode: "all_days",
+    rewardMode: "per_day",
+    priority: 1,
     requirePhoto: false,
     description: "Pack towel, goggles, shin pads, or kit bag without a morning rush",
   },
@@ -1753,6 +1770,31 @@ export type ChildBudgetSplitResult = {
   allocations: ChoreSplitAllocation[];
 };
 
+export function choreSplitWeeklyWeight(
+  priority: ChorePriority,
+  daysCount: number,
+  rewardMode: ChoreRewardMode,
+): number {
+  const extraDays = Math.max(0, daysCount - 1);
+  if (daysCount <= 1) return priority;
+  if (rewardMode === "per_day") {
+    const scaleByPriority: Record<ChorePriority, number> = {
+      1: 0.05,
+      2: 0.35,
+      3: 0.75,
+      4: 1.0,
+    };
+    return priority * (1 + scaleByPriority[priority] * extraDays);
+  }
+  const streakScaleByPriority: Record<ChorePriority, number> = {
+    1: 0.03,
+    2: 0.15,
+    3: 0.3,
+    4: 0.5,
+  };
+  return priority * (1 + streakScaleByPriority[priority] * extraDays);
+}
+
 export function calculateChildBudgetSplit(
   chores: Chore[],
   childId: string,
@@ -1802,11 +1844,7 @@ export function calculateChildBudgetSplit(
         rewardMode: rMode,
       });
     } else {
-      const weight = isPerDay
-        ? priority * daysCount
-        : daysCount > 1
-          ? priority * (1 + 0.25 * (daysCount - 1))
-          : priority;
+      const weight = choreSplitWeeklyWeight(priority, daysCount, rMode);
       working.push({
         choreId: c.id,
         priority,
