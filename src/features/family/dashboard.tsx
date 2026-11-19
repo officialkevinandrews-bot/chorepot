@@ -51,6 +51,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { executeFamilyAction, resolveProofUrl, uploadOrEncodePhotoProof } from "./family-client";
 import { enablePush } from "./push";
 import {
+  CHILD_THEMES,
+  isRunningInApk,
   money,
   balance,
   days,
@@ -61,6 +63,7 @@ import {
   formatChoreSchedule,
   nextPaydayInfo,
   childWeeklySummary,
+  type ChildThemeColor,
   type Family,
   type Chore,
   type ChoreFrequency,
@@ -68,11 +71,11 @@ import {
 } from "./model";
 
 const navigation = [
-  { name: "Overview", icon: LayoutDashboard },
-  { name: "Chores", icon: ListChecks },
-  { name: "Weekly schedule", icon: CalendarDays },
-  { name: "Pocket money", icon: Wallet },
-  { name: "Our family", icon: Users },
+  { name: "Overview", short: "Overview", icon: LayoutDashboard },
+  { name: "Chores", short: "Chores", icon: ListChecks },
+  { name: "Weekly schedule", short: "Schedule", icon: CalendarDays },
+  { name: "Pocket money", short: "Money", icon: Wallet },
+  { name: "Our family", short: "Family", icon: Users },
 ];
 
 const choreEmojis = [
@@ -114,11 +117,21 @@ const modalTitles: Record<string, string> = {
   unlock_pin: "Enter Parent PIN",
 };
 
-export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: () => void }) {
+export function Dashboard({
+  family,
+  onRefresh,
+  initialView,
+  initialKidMode,
+}: {
+  family: Family;
+  onRefresh?: () => void;
+  initialView?: string | undefined;
+  initialKidMode?: string | undefined;
+}) {
   const [data, setData] = useState<Family>(family);
-  const [view, setView] = useState("Overview");
+  const [view, setView] = useState(initialView ?? "Overview");
   const [child, setChild] = useState("all");
-  const [kidModeChildId, setKidModeChildId] = useState("");
+  const [kidModeChildId, setKidModeChildId] = useState(initialKidMode ?? "");
   const [pinInput, setPinInput] = useState("");
   const [modal, setModal] = useState<string | null>(null);
   const [selected, setSelected] = useState<Chore | Goal | null>(null);
@@ -129,8 +142,10 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
   const [inviteTab, setInviteTab] = useState<"direct_child" | "link">("direct_child");
   const [newChildName, setNewChildName] = useState("");
   const [newChildAvatar, setNewChildAvatar] = useState("👧🏼");
+  const [newChildTheme, setNewChildTheme] = useState<ChildThemeColor>("sunset");
   const [newChildEmail, setNewChildEmail] = useState("");
   const [newChildWithCode, setNewChildWithCode] = useState(true);
+  const [isApk, setIsApk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [day, setDay] = useState(today());
   const [mobile, setMobile] = useState(false);
@@ -155,6 +170,8 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
   const isChild = isChildAccount || inKidMode;
   const activeChild = isChildAccount ? data.userId : kidModeChildId;
   const children = data.members.filter((m) => m.role === "child");
+  const activeChildMember = children.find((c) => c.id === activeChild);
+  const activeChildTheme = isChild ? (activeChildMember?.themeColor ?? "sunset") : undefined;
   const profile =
     data.members.find((m) => m.id === (isChild ? activeChild : data.userId)) ?? data.members[0];
   const pending = data.state.chores.filter((c) => c.status === "pending");
@@ -177,6 +194,10 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
   useEffect(() => {
     setData(family);
   }, [family]);
+
+  useEffect(() => {
+    setIsApk(isRunningInApk());
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || data.role === "child") return;
@@ -280,6 +301,7 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
       setInviteTab("direct_child");
       setNewChildName("");
       setNewChildAvatar("👧🏼");
+      setNewChildTheme("sunset");
       setNewChildEmail("");
       setNewChildWithCode(true);
     } else if (kind === "chore") {
@@ -435,6 +457,7 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
           const updated = await executeFamilyAction(data, "add_managed_child", {
             name: newChildName,
             avatar: newChildAvatar,
+            themeColor: newChildTheme,
             email,
             inviteCode: code,
           });
@@ -663,7 +686,10 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
     typeof window === "undefined" ? "https://chorepot.app" : window.location.origin;
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell ${isApk ? "is-apk" : ""}`}
+      {...(activeChildTheme ? { "data-child-theme": activeChildTheme } : {})}
+    >
       {celebrate && (
         <div className="celebration" aria-hidden="true">
           {["⭐", "🎉", "✨", "🌟", "💚", "🎊"].map((x, i) => (
@@ -807,6 +833,31 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
                   "Return to Parent view"
                 )}
               </button>
+            </div>
+          )}
+
+          {isChild && activeChild && (
+            <div className="theme-swatch-bar">
+              <span>🎨 My colour theme</span>
+              <div className="theme-swatch-list">
+                {CHILD_THEMES.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    disabled={busy}
+                    className={`theme-swatch-pill ${activeChildTheme === t.id ? "active" : ""}`}
+                    onClick={() =>
+                      act("set_child_theme", {
+                        childId: activeChild,
+                        themeColor: t.id,
+                      })
+                    }
+                  >
+                    <span className="theme-swatch-dot" style={{ backgroundColor: t.swatch }} />
+                    {t.label.split(" ")[0]}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -1010,8 +1061,11 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
                     </div>
                     {children
                       .filter((c) => !isChild || c.id === activeChild)
-                      .map((m, i) => (
-                        <div className={`child-card ${i % 2 ? "pink" : "mint"}`} key={m.id}>
+                      .map((m) => (
+                        <div
+                          className={`child-card child-theme-${m.themeColor ?? "sunset"}`}
+                          key={m.id}
+                        >
                           <div className="child-top">
                             <span className="child-avatar">{m.avatar}</span>
                             <div className="flex-1">
@@ -1184,7 +1238,10 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
                   .map((m) => {
                     const summary = childWeeklySummary(data.state, m.id);
                     return (
-                      <div className="pay-card" key={m.id}>
+                      <div
+                        className={`pay-card child-theme-${m.themeColor ?? "sunset"}`}
+                        key={m.id}
+                      >
                         <div className="flex items-center gap-3">
                           <span className="child-avatar">{m.avatar}</span>
                           <div>
@@ -1377,7 +1434,10 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
               </div>
               <div className="family-grid">
                 {data.members.map((m) => (
-                  <div className="member-card" key={m.id}>
+                  <div
+                    className={`member-card ${m.role === "child" ? `child-theme-${m.themeColor ?? "sunset"}` : ""}`}
+                    key={m.id}
+                  >
                     <div className="flex items-start justify-between">
                       <span className="child-avatar">{m.avatar}</span>
                       {!isChild && m.isManaged && (
@@ -1402,6 +1462,31 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
                           ? "Co-parent"
                           : "Primary parent"}
                     </p>
+                    {!isChild && m.role === "child" && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {CHILD_THEMES.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            disabled={busy}
+                            title={`Set ${m.name}'s colour to ${t.label}`}
+                            aria-label={`Set ${m.name}'s colour to ${t.label}`}
+                            className={`theme-swatch-dot cursor-pointer border-2 ${
+                              (m.themeColor ?? "sunset") === t.id
+                                ? "border-foreground scale-110"
+                                : "border-white/80"
+                            }`}
+                            style={{ backgroundColor: t.swatch, width: 18, height: 18 }}
+                            onClick={() =>
+                              act("set_child_theme", {
+                                childId: m.id,
+                                themeColor: t.id,
+                              })
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
                     {!isChild && m.isManaged && m.inviteCode && (
                       <div className="mt-2 flex items-center gap-2 text-xs">
                         <span className="code-pill">{m.inviteCode}</span>
@@ -2093,6 +2178,25 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
                         ))}
                       </div>
                     </div>
+                    <div>
+                      <span className="field-label">Favourite colour theme</span>
+                      <div className="theme-swatch-list">
+                        {CHILD_THEMES.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            className={`theme-swatch-pill ${newChildTheme === t.id ? "active" : ""}`}
+                            onClick={() => setNewChildTheme(t.id)}
+                          >
+                            <span
+                              className="theme-swatch-dot"
+                              style={{ backgroundColor: t.swatch }}
+                            />
+                            {t.label.split(" ")[0]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <label>
                       Child’s email address (optional)
                       <Input
@@ -2323,6 +2427,26 @@ export function Dashboard({ family, onRefresh }: { family: Family; onRefresh?: (
           </form>
         </DialogContent>
       </Dialog>
+
+      <nav className="apk-bottom-dock" aria-label="App navigation">
+        {navigation.map((n) => (
+          <button
+            key={n.name}
+            type="button"
+            className={`apk-dock-btn ${view === n.name ? "active" : ""}`}
+            onClick={() => {
+              setView(n.name);
+              setMobile(false);
+            }}
+          >
+            <n.icon size={20} />
+            <span>{n.short}</span>
+            {n.name === "Chores" && pending.length > 0 && (
+              <span className="apk-dock-badge">{pending.length}</span>
+            )}
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

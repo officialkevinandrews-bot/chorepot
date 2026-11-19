@@ -24,10 +24,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { executeFamilyAction, fetchAuthenticatedFamily } from "./family-client";
 import {
+  CHILD_THEMES,
   STARTER_CHORES,
   days,
   fullDays,
   money,
+  type ChildThemeColor,
   type Family,
   type ManagedChild,
   type PendingInvite,
@@ -75,6 +77,7 @@ export function OnboardingWizard({
   );
   const [childName, setChildName] = useState("");
   const [childAvatar, setChildAvatar] = useState("👧🏼");
+  const [childTheme, setChildTheme] = useState<ChildThemeColor>("sunset");
   const [childMode, setChildMode] = useState<"no_email" | "invite">("no_email");
   const [childEmail, setChildEmail] = useState("");
 
@@ -195,6 +198,7 @@ export function OnboardingWizard({
         name: trimmed,
         avatar: childAvatar,
         role: "child",
+        themeColor: childTheme,
         isManaged: true,
         ...(childMode === "invite" && childEmail.trim() ? { email: childEmail.trim() } : {}),
         ...(inviteCode ? { inviteCode } : {}),
@@ -567,6 +571,23 @@ export function OnboardingWizard({
                       </button>
                     ))}
                   </div>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <span className="field-label">Child’s favourite colour theme</span>
+                <div className="theme-swatch-list">
+                  {CHILD_THEMES.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className={`theme-swatch-pill ${childTheme === t.id ? "active" : ""}`}
+                      onClick={() => setChildTheme(t.id)}
+                    >
+                      <span className="theme-swatch-dot" style={{ backgroundColor: t.swatch }} />
+                      {t.label.split(" ")[0]}
+                    </button>
+                  ))}
                 </div>
               </div>
 

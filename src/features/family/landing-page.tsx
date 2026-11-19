@@ -279,10 +279,10 @@ export function LandingPage() {
               <span className="feature-icon peach">
                 <Tablet size={20} />
               </span>
-              <h3>Works With or Without a Child Email</h3>
+              <h3>Kid Mode, PIN & Custom Colours</h3>
               <p>
                 Invite older kids onto their own phone or tablet, or set up younger kids in seconds
-                with Kid Mode and a 4-digit Parent PIN.
+                with Kid Mode, a 4-digit Parent PIN, and their own favourite colour theme.
               </p>
             </div>
             <div className="feature-card">

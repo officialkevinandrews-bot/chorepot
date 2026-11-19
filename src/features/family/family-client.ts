@@ -2,11 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database, Json } from "@/integrations/supabase/types";
 import {
+  CHILD_THEMES,
   balance,
   currentWeekKey,
   defaultHouseholdConfig,
+  isChildThemeColor,
   isChoreScheduledOnDay,
   today,
+  type ChildThemeColor,
   type Chore,
   type ChoreFrequency,
   type ChoreOverride,
@@ -39,6 +42,9 @@ function parsePreferences(raw: Json | null | undefined): MemberPreferences {
   }
   if (typeof obj["clearedNotificationsAt"] === "string") {
     prefs.clearedNotificationsAt = obj["clearedNotificationsAt"];
+  }
+  if (isChildThemeColor(obj["themeColor"])) {
+    prefs.themeColor = obj["themeColor"];
   }
   if (Array.isArray(obj["customGoals"])) {
     prefs.customGoals = obj["customGoals"] as Goal[];
@@ -152,6 +158,7 @@ function buildNextHouseholdConfig(
         : {}),
     managedChildren: patch.managedChildren ?? base.managedChildren ?? [],
     pendingInvites: patch.pendingInvites ?? base.pendingInvites ?? [],
+    childThemes: patch.childThemes ?? base.childThemes ?? {},
     customChores: patch.customChores ?? base.customChores ?? [],
     customLedger: patch.customLedger ?? base.customLedger ?? [],
     customNotifications: patch.customNotifications ?? base.customNotifications ?? [],
@@ -196,12 +203,14 @@ export async function loadFamilyFromSupabase(
 
   const realMembers: Member[] = (roles ?? []).map((r) => {
     const p = profiles?.find((item) => item.id === r.user_id);
+    const parsed = parsePreferences(p?.preferences);
     return {
       id: r.user_id,
       role: r.role,
       name: p?.name ?? "Family member",
       avatar: p?.avatar ?? "🌱",
-      preferences: parsePreferences(p?.preferences),
+      ...(parsed.themeColor ? { themeColor: parsed.themeColor } : {}),
+      preferences: parsed,
     };
   });
 
@@ -212,6 +221,14 @@ export async function loadFamilyFromSupabase(
     .sort((a, b) => (a.updatedAt ?? "").localeCompare(b.updatedAt ?? ""));
 
   const latestConfig = parentConfigs[parentConfigs.length - 1];
+  const mergedChildThemes: Record<string, ChildThemeColor> = {
+    ...(latestConfig?.childThemes ?? {}),
+  };
+  for (const m of realMembers) {
+    if (m.preferences?.themeColor) {
+      mergedChildThemes[m.id] = m.preferences.themeColor;
+    }
+  }
   const mergedChoreOverrides = collectLatestOverrides<ChoreOverride>(
     parentMembers.map((m) => m.preferences?.householdConfig?.choreOverrides),
   );
@@ -227,17 +244,29 @@ export async function loadFamilyFromSupabase(
   const managedChildren = (latestConfig?.managedChildren ?? []).filter(
     (mc) => !realMemberIds.has(mc.id) && !realChildNames.has(mc.name.trim().toLowerCase()),
   );
+  let childThemeIdx = 0;
   const members: Member[] = [
-    ...realMembers,
-    ...managedChildren.map((mc) => ({
-      id: mc.id,
-      name: mc.name,
-      avatar: mc.avatar,
-      role: "child",
-      isManaged: true as const,
-      ...(mc.email ? { email: mc.email } : {}),
-      ...(mc.inviteCode ? { inviteCode: mc.inviteCode } : {}),
-    })),
+    ...realMembers.map((m) => {
+      if (m.role !== "child") return m;
+      const fallbackTheme = CHILD_THEMES[childThemeIdx++ % CHILD_THEMES.length]?.id ?? "sunset";
+      return {
+        ...m,
+        themeColor: mergedChildThemes[m.id] ?? m.themeColor ?? fallbackTheme,
+      };
+    }),
+    ...managedChildren.map((mc) => {
+      const fallbackTheme = CHILD_THEMES[childThemeIdx++ % CHILD_THEMES.length]?.id ?? "sunset";
+      return {
+        id: mc.id,
+        name: mc.name,
+        avatar: mc.avatar,
+        role: "child",
+        isManaged: true as const,
+        themeColor: mergedChildThemes[mc.id] ?? mc.themeColor ?? fallbackTheme,
+        ...(mc.email ? { email: mc.email } : {}),
+        ...(mc.inviteCode ? { inviteCode: mc.inviteCode } : {}),
+      };
+    }),
   ];
 
   const rawState = household.state as unknown as Partial<FamilyState>;
@@ -317,6 +346,7 @@ export async function loadFamilyFromSupabase(
     ...(latestConfig?.parentPin ? { parentPin: latestConfig.parentPin } : {}),
     managedChildren: latestConfig?.managedChildren ?? [],
     pendingInvites: latestConfig?.pendingInvites ?? [],
+    childThemes: mergedChildThemes,
     customChores,
     customLedger,
     customNotifications: customNotices,
@@ -419,10 +449,20 @@ export async function ensureWeeklyReset(family: Family): Promise<Family> {
       let nextCustomChores = [...(cfg.customChores ?? [])];
       let nextCustomLedger = [...(cfg.customLedger ?? [])];
       let nextCustomNotices = [...(cfg.customNotifications ?? [])];
+      const nextChildThemes: Record<string, ChildThemeColor> = {
+        ...(cfg.childThemes ?? {}),
+      };
       const newOverrides: Record<string, ChoreOverride> = {};
 
       // 1. Remap linked managed children to real user_roles accounts
       if (linkMappings.size > 0) {
+        for (const [oldId, realId] of linkMappings.entries()) {
+          const oldMc = storedManaged.find((m) => m.id === oldId);
+          const inheritedTheme = nextChildThemes[oldId] ?? oldMc?.themeColor;
+          if (inheritedTheme && !nextChildThemes[realId]) {
+            nextChildThemes[realId] = inheritedTheme;
+          }
+        }
         nextManaged = nextManaged.filter((mc) => !linkMappings.has(mc.id));
 
         const remainingCustomChores: Chore[] = [];
@@ -516,6 +556,7 @@ export async function ensureWeeklyReset(family: Family): Promise<Family> {
           family,
           {
             managedChildren: nextManaged,
+            childThemes: nextChildThemes,
             customChores: nextCustomChores,
             customLedger: nextCustomLedger,
             customNotifications: nextCustomNotices,
@@ -760,6 +801,12 @@ export async function executeFamilyAction(
     if (fetchErr) throw new Error(fetchErr.message);
 
     const parsedPrefs = parsePreferences(currentData?.preferences);
+    const onboardingThemes: Record<string, ChildThemeColor> = {
+      ...(cfg.childThemes ?? {}),
+    };
+    for (const mc of managedChildren) {
+      if (mc.themeColor) onboardingThemes[mc.id] = mc.themeColor;
+    }
     const nextConfig = buildNextHouseholdConfig(
       family,
       {
@@ -769,6 +816,7 @@ export async function executeFamilyAction(
         parentPin,
         managedChildren,
         pendingInvites,
+        childThemes: onboardingThemes,
         customChores: newCustomChores,
       },
       nowIso,
@@ -795,6 +843,9 @@ export async function executeFamilyAction(
     const email = typeof payload["email"] === "string" ? payload["email"].trim() : "";
     const inviteCode =
       typeof payload["inviteCode"] === "string" ? payload["inviteCode"].trim() : "";
+    const themeColor: ChildThemeColor = isChildThemeColor(payload["themeColor"])
+      ? payload["themeColor"]
+      : "sunset";
     if (!name) throw new Error("Please enter the child's name");
 
     const newChild: ManagedChild = {
@@ -802,6 +853,7 @@ export async function executeFamilyAction(
       name,
       avatar,
       role: "child",
+      themeColor,
       isManaged: true,
       ...(email ? { email } : {}),
       ...(inviteCode ? { inviteCode } : {}),
@@ -826,6 +878,10 @@ export async function executeFamilyAction(
         {
           managedChildren: [...(cfg.managedChildren ?? []), newChild],
           pendingInvites: nextInvites,
+          childThemes: {
+            ...(cfg.childThemes ?? {}),
+            [newChild.id]: themeColor,
+          },
         },
         nowIso,
       ),
@@ -1451,10 +1507,41 @@ export async function executeFamilyAction(
       ...prefs,
       clearedNotificationsAt: nowIso,
     }));
+  } else if (action === "set_child_theme") {
+    const childId = String(payload["childId"] ?? "");
+    const themeColor: ChildThemeColor = isChildThemeColor(payload["themeColor"])
+      ? payload["themeColor"]
+      : "sunset";
+
+    if (family.role === "child" && childId === family.userId) {
+      await updateMyPreferences(family.userId, (prefs) => ({
+        ...prefs,
+        themeColor,
+      }));
+    } else {
+      const nextManaged = (cfg.managedChildren ?? []).map((mc) =>
+        mc.id === childId ? { ...mc, themeColor } : mc,
+      );
+      await updateMyPreferences(family.userId, (prefs) => ({
+        ...prefs,
+        householdConfig: buildNextHouseholdConfig(
+          family,
+          {
+            managedChildren: nextManaged,
+            childThemes: {
+              ...(cfg.childThemes ?? {}),
+              [childId]: themeColor,
+            },
+          },
+          nowIso,
+        ),
+      }));
+    }
   } else if (action === "update_profile") {
     const name = String(payload["name"] ?? "").trim();
     const avatar = String(payload["avatar"] ?? "🌱");
     const celebrations = Boolean(payload["celebrations"]);
+    const themeColor = isChildThemeColor(payload["themeColor"]) ? payload["themeColor"] : undefined;
 
     const { data: currentData, error: fetchErr } = await supabase
       .from("profiles")
@@ -1466,6 +1553,7 @@ export async function executeFamilyAction(
     const nextPrefs: MemberPreferences = {
       ...parsePreferences(currentData?.preferences),
       celebrations,
+      ...(themeColor ? { themeColor } : {}),
     };
 
     const { error } = await supabase

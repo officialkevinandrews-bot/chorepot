@@ -9,6 +9,9 @@ import {
   nextPaydayInfo,
   childWeeklySummary,
   STARTER_CHORES,
+  CHILD_THEMES,
+  isChildThemeColor,
+  isRunningInApk,
   type Chore,
 } from "../features/family/model";
 
@@ -187,5 +190,18 @@ describe("Starter chores & managed child templates", () => {
       expect(item.day).toBeLessThanOrEqual(6);
       expect(item.days.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("Child theme colours & APK detection", () => {
+  it("validates supported child theme colours", () => {
+    expect(CHILD_THEMES.length).toBeGreaterThanOrEqual(7);
+    expect(isChildThemeColor("sunset")).toBe(true);
+    expect(isChildThemeColor("berry")).toBe(true);
+    expect(isChildThemeColor("unknown")).toBe(false);
+  });
+
+  it("defaults isRunningInApk to false in normal browser environments", () => {
+    expect(isRunningInApk()).toBe(false);
   });
 });

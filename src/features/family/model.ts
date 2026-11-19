@@ -1,3 +1,48 @@
+export type ChildThemeColor =
+  "sunset" | "berry" | "ocean" | "rose" | "emerald" | "sunshine" | "indigo";
+
+export const CHILD_THEMES: Array<{
+  id: ChildThemeColor;
+  label: string;
+  swatch: string;
+  emoji: string;
+}> = [
+  { id: "sunset", label: "Sunset Coral", swatch: "#f97316", emoji: "🌅" },
+  { id: "berry", label: "Berry Plum", swatch: "#9333ea", emoji: "🍇" },
+  { id: "ocean", label: "Ocean Teal", swatch: "#0891b2", emoji: "🌊" },
+  { id: "rose", label: "Bubblegum Pink", swatch: "#ec4899", emoji: "🌸" },
+  { id: "emerald", label: "Forest Mint", swatch: "#16a34a", emoji: "🌿" },
+  { id: "sunshine", label: "Honey Gold", swatch: "#eab308", emoji: "🌻" },
+  { id: "indigo", label: "Cosmic Blue", swatch: "#4f46e5", emoji: "🚀" },
+];
+
+export function isChildThemeColor(value: unknown): value is ChildThemeColor {
+  return typeof value === "string" && CHILD_THEMES.some((item) => item.id === value);
+}
+
+export function isRunningInApk(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const cap = (
+      window as unknown as {
+        Capacitor?: { isNativePlatform?: () => boolean };
+      }
+    ).Capacitor;
+    if (cap?.isNativePlatform?.()) return true;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("apk") === "1") {
+      sessionStorage.setItem("chorepot-apk", "1");
+      return true;
+    }
+    if (sessionStorage.getItem("chorepot-apk") === "1") return true;
+    const ua = navigator.userAgent || "";
+    if (ua.includes("ChorepotAPK") || ua.includes("; wv)")) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 export type ManagedChild = {
   id: string;
   name: string;
@@ -5,6 +50,7 @@ export type ManagedChild = {
   role: "child";
   email?: string;
   inviteCode?: string;
+  themeColor?: ChildThemeColor;
   isManaged: true;
 };
 
@@ -20,6 +66,7 @@ export type PendingInvite = {
 export type MemberPreferences = {
   celebrations?: boolean;
   clearedNotificationsAt?: string;
+  themeColor?: ChildThemeColor;
   customGoals?: Goal[];
   goalOverrides?: Record<string, GoalOverride>;
   householdConfig?: HouseholdConfig;
@@ -32,6 +79,7 @@ export type Member = {
   role: string;
   email?: string;
   inviteCode?: string;
+  themeColor?: ChildThemeColor;
   isManaged?: boolean;
   preferences?: MemberPreferences;
 };
@@ -253,6 +301,7 @@ export type HouseholdConfig = {
   paydayDay: number;
   onboardingCompleted?: boolean;
   parentPin?: string;
+  childThemes?: Record<string, ChildThemeColor>;
   managedChildren?: ManagedChild[];
   pendingInvites?: PendingInvite[];
   customChores?: Chore[];
@@ -469,8 +518,20 @@ export const demo: Family = {
   members: [
     { id: "parent", name: "Sarah", avatar: "👩🏻", role: "primary_parent" },
     { id: "coparent", name: "James", avatar: "👨🏻", role: "co_parent" },
-    { id: "oliver", name: "Oliver", avatar: "🧑🏼‍🚀", role: "child" },
-    { id: "amelia", name: "Amelia", avatar: "👩🏻‍🎨", role: "child" },
+    {
+      id: "oliver",
+      name: "Oliver",
+      avatar: "🧑🏼‍🚀",
+      role: "child",
+      themeColor: "ocean",
+    },
+    {
+      id: "amelia",
+      name: "Amelia",
+      avatar: "👩🏻‍🎨",
+      role: "child",
+      themeColor: "berry",
+    },
   ],
   state: {
     chores: [
