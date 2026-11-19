@@ -66,6 +66,7 @@ import {
   resolveChoreCategory,
   resolveChorePriority,
   isRunningInApk,
+  tryNativeAndroidShare,
   money,
   balance,
   days,
@@ -900,6 +901,10 @@ export function Dashboard({
         `Hi!\n\nYou've been invited to join ${data.name} on Chorepot.\n\nClick this link to create your account:\n${link}\n\nOr enter the 6-character invite code: ${code}`,
       );
       window.location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
+      return;
+    }
+
+    if (tryNativeAndroidShare(`Join ${data.name} on Chorepot`, message, link)) {
       return;
     }
 

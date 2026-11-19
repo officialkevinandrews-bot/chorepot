@@ -25,6 +25,7 @@ import {
   CHILD_THEMES,
   isChildThemeColor,
   isRunningInApk,
+  tryNativeAndroidShare,
   type Chore,
 } from "../features/family/model";
 
@@ -254,8 +255,28 @@ describe("Child theme colours & APK detection", () => {
     expect(isChildThemeColor("unknown")).toBe(false);
   });
 
-  it("defaults isRunningInApk to false in normal browser environments", () => {
+  it("defaults isRunningInApk and tryNativeAndroidShare to false in normal browser environments", () => {
     expect(isRunningInApk()).toBe(false);
+    expect(tryNativeAndroidShare("Join", "Hello", "https://chorepot.app")).toBe(false);
+  });
+
+  it("invokes ChorepotAndroid.share bridge when running inside the Android APK WebView", () => {
+    let shared: unknown[] | null = null;
+    (
+      window as unknown as { ChorepotAndroid?: { share: (...a: unknown[]) => void } }
+    ).ChorepotAndroid = {
+      share: (...args) => {
+        shared = args;
+      },
+    };
+    try {
+      expect(
+        tryNativeAndroidShare("Chorepot", "Join us", "https://chorepot.app/auth?code=123"),
+      ).toBe(true);
+      expect(shared).toEqual(["Chorepot", "Join us", "https://chorepot.app/auth?code=123"]);
+    } finally {
+      delete (window as unknown as { ChorepotAndroid?: unknown }).ChorepotAndroid;
+    }
   });
 });
 

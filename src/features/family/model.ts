@@ -43,6 +43,25 @@ export function isRunningInApk(): boolean {
   return false;
 }
 
+/** Triggers the native Android share sheet when hosted inside the Chorepot APK WebView. */
+export function tryNativeAndroidShare(title: string, text: string, url: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const bridge = (
+      window as unknown as {
+        ChorepotAndroid?: { share?: (t: string, body: string, u: string) => void };
+      }
+    ).ChorepotAndroid;
+    if (typeof bridge?.share === "function") {
+      bridge.share(title, text, url);
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 export type ManagedChild = {
   id: string;
   name: string;

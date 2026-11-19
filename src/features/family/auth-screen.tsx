@@ -7,21 +7,137 @@ import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { isRunningInApk } from "./model";
+
 export function AuthScreen({
   code,
   defaultSignup,
+  apkOauth,
+  apkOauthError,
 }: {
   code?: string | undefined;
   defaultSignup?: boolean | undefined;
+  apkOauth?: boolean | undefined;
+  apkOauthError?: string | undefined;
 }) {
   const [signup, setSignup] = useState(!!code || !!defaultSignup),
     [busy, setBusy] = useState(false),
     [sent, setSent] = useState(false),
-    [forgot, setForgot] = useState(false);
+    [forgot, setForgot] = useState(false),
+    [apkReturnUrl, setApkReturnUrl] = useState(""),
+    [initialHash] = useState(() => (typeof window !== "undefined" ? window.location.hash : ""));
   const navigate = useNavigate();
+
   useEffect(() => {
     if (code || defaultSignup) setSignup(true);
   }, [code, defaultSignup]);
+
+  useEffect(() => {
+    if (apkOauthError) toast.error(apkOauthError);
+  }, [apkOauthError]);
+
+  // Inside Chrome Custom Tabs after Google/Lovable OAuth redirects back to /auth?apk_oauth=1,
+  // hand the session tokens straight back to the Chorepot APK via chorepot://oauth-callback.
+  useEffect(() => {
+    if (!apkOauth || typeof window === "undefined") return;
+    let cancelled = false;
+    let redirected = false;
+
+    function jumpToApp(url: string) {
+      if (cancelled || redirected) return;
+      redirected = true;
+      setApkReturnUrl(url);
+      window.location.replace(url);
+    }
+
+    const hashStr = (initialHash || window.location.hash || "").replace(/^#/, "");
+    const hashParams = new URLSearchParams(hashStr);
+    const searchParams = new URLSearchParams(window.location.search);
+    const errDesc =
+      hashParams.get("error_description") ??
+      hashParams.get("error") ??
+      searchParams.get("error_description") ??
+      searchParams.get("error");
+    if (errDesc) {
+      jumpToApp(`chorepot://oauth-callback?error=${encodeURIComponent(errDesc)}`);
+      return;
+    }
+
+    const hashAccess = hashParams.get("access_token") ?? searchParams.get("access_token");
+    const hashRefresh = hashParams.get("refresh_token") ?? searchParams.get("refresh_token");
+    if (hashAccess && hashRefresh) {
+      const p = new URLSearchParams({ access_token: hashAccess, refresh_token: hashRefresh });
+      jumpToApp(`chorepot://oauth-callback#${p.toString()}`);
+      return;
+    }
+
+    void supabase.auth.getSession().then(({ data }) => {
+      const s = data.session;
+      if (s?.access_token && s?.refresh_token) {
+        const p = new URLSearchParams({
+          access_token: s.access_token,
+          refresh_token: s.refresh_token,
+        });
+        jumpToApp(`chorepot://oauth-callback#${p.toString()}`);
+      }
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (s?.access_token && s?.refresh_token) {
+        const p = new URLSearchParams({
+          access_token: s.access_token,
+          refresh_token: s.refresh_token,
+        });
+        jumpToApp(`chorepot://oauth-callback#${p.toString()}`);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, [apkOauth, initialHash]);
+
+  // Inside the Chorepot APK WebView, accept OAuth tokens returned from chorepot://oauth-callback
+  // via URL hash (both on fresh load and same-page hashchange navigation).
+  useEffect(() => {
+    if (apkOauth || typeof window === "undefined") return;
+    let active = true;
+
+    async function applyApkSessionFromHash() {
+      const raw = (window.location.hash || "").replace(/^#/, "");
+      if (!raw) return;
+      const params = new URLSearchParams(raw);
+      const accessToken = params.get("apk_access_token");
+      const refreshToken = params.get("apk_refresh_token");
+      if (!accessToken || !refreshToken) return;
+
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      setBusy(true);
+      try {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (error) throw error;
+        if (active) void navigate({ to: "/dashboard", replace: true });
+      } catch (err) {
+        if (active) {
+          toast.error(err instanceof Error ? err.message : "Could not complete sign-in");
+        }
+      } finally {
+        if (active) setBusy(false);
+      }
+    }
+
+    void applyApkSessionFromHash();
+    const onHash = () => void applyApkSessionFromHash();
+    window.addEventListener("hashchange", onHash);
+    return () => {
+      active = false;
+      window.removeEventListener("hashchange", onHash);
+    };
+  }, [apkOauth, navigate]);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
@@ -61,11 +177,50 @@ export function AuthScreen({
   }
   async function social(provider: "google" | "lovable") {
     if (code) sessionStorage.setItem("family-invite", code);
+    const redirectUri = isRunningInApk()
+      ? `${window.location.origin}/auth?apk_oauth=1`
+      : window.location.origin;
     const r = await lovable.auth.signInWithOAuth(provider, {
-      redirect_uri: window.location.origin,
+      redirect_uri: redirectUri,
     });
     if (r.error) toast.error(r.error.message);
     else if (!r.redirected) navigate({ to: "/dashboard" });
+  }
+  if (apkOauth) {
+    return (
+      <main className="auth-page">
+        <Link to="/" className="brand">
+          <span className="brand-mark">
+            <Sprout />
+          </span>
+          chorepot<span className="brand-dot">.</span>
+        </Link>
+        <div className="auth-layout">
+          <div className="auth-art">
+            <img src="/piggy-bank.png" alt="A cheerful piggy bank and gold coins" />
+            <h1>
+              Little chores.
+              <br />
+              Big possibilities.
+            </h1>
+            <p>A little better, together.</p>
+          </div>
+          <section className="auth-form">
+            <h2>{apkReturnUrl ? "Sign-in complete!" : "Finishing sign-in…"}</h2>
+            <p>
+              {apkReturnUrl
+                ? "Opening Chorepot now. Tap below if your phone doesn’t switch back automatically."
+                : "Connecting your account safely back to the Chorepot app."}
+            </p>
+            {apkReturnUrl && (
+              <Button asChild className="mt-4 w-full">
+                <a href={apkReturnUrl}>Return to Chorepot app</a>
+              </Button>
+            )}
+          </section>
+        </div>
+      </main>
+    );
   }
   return (
     <main className="auth-page">

@@ -30,6 +30,7 @@ import {
   days,
   fullDays,
   money,
+  tryNativeAndroidShare,
   type ChildThemeColor,
   type ChoreCategory,
   type Family,
@@ -293,6 +294,10 @@ export function OnboardingWizard({
         `Hi ${inv.name},\n\nYou've been invited to join ${familyName || "our family"} on Chorepot!\n\nTap this link to sign up:\n${link}\n\nOr enter code: ${inv.code}`,
       );
       window.location.href = `mailto:${encodeURIComponent(inv.email ?? "")}?subject=${subject}&body=${body}`;
+      return;
+    }
+
+    if (tryNativeAndroidShare("Join Chorepot", msg, link)) {
       return;
     }
 
