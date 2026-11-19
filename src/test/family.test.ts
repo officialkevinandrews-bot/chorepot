@@ -16,6 +16,8 @@ import {
   CHORE_CATEGORIES,
   CHORE_PRIORITIES,
   calculateChildBudgetSplit,
+  childWeeklyBonusInfo,
+  currentWeekKey,
   choreSplitWeeklyWeight,
   resolveChoreCategory,
   resolveChorePriority,
@@ -523,5 +525,143 @@ describe("4-star priority system & exact-1p weekly budget splitter", () => {
     });
     expect(stateAfter.chores.find((c) => c.id === "p2")?.value).toBe(150);
     expect(stateAfter.chores.find((c) => c.id === "p3")?.value).toBe(300);
+  });
+
+  it("rebalances unlocked chores around manually edited weekly targets and divides per-day rates", () => {
+    const chores: Chore[] = [
+      {
+        id: "m1",
+        title: "Empty dishwasher",
+        childId: "oliver",
+        day: 0,
+        days: [0, 1, 2, 3, 4],
+        frequency: "weekly",
+        priority: 3,
+        rewardMode: "per_day",
+        value: 0,
+        emoji: "🍽️",
+        status: "todo",
+      },
+      {
+        id: "m2",
+        title: "Clean rabbit hutch",
+        childId: "oliver",
+        day: 5,
+        days: [5],
+        frequency: "weekly",
+        priority: 3,
+        value: 0,
+        emoji: "🐇",
+        status: "todo",
+      },
+      {
+        id: "m3",
+        title: "Sort washing",
+        childId: "oliver",
+        day: 6,
+        days: [6],
+        frequency: "weekly",
+        priority: 1,
+        value: 0,
+        emoji: "🧺",
+        status: "todo",
+      },
+    ];
+
+    // Pin m1 to £2.50/wk (250p) across 5 days => 50p/day, remaining £7.50 split across m2 (prio 3) & m3 (prio 1)
+    const res = calculateChildBudgetSplit(chores, "oliver", 1000, "overwrite_all", undefined, {
+      m1: 250,
+    });
+    const a1 = res.allocations.find((a) => a.choreId === "m1")!;
+    const a2 = res.allocations.find((a) => a.choreId === "m2")!;
+    const a3 = res.allocations.find((a) => a.choreId === "m3")!;
+
+    expect(a1.locked).toBe(true);
+    expect(a1.lockType).toBe("manual");
+    expect(a1.newValue).toBe(50);
+    expect(a1.newWeeklyMax).toBe(250);
+    expect(res.lockedWeeklyPence).toBe(250);
+    expect(res.availableToSplitPence).toBe(750);
+    expect(res.allocatedWeeklyTotalPence).toBe(1000);
+    expect(a2.newValue + a3.newValue).toBe(750);
+    expect(a2.newValue).toBeGreaterThan(a3.newValue);
+  });
+
+  it("reports over-budget locked totals and tracks active weekly bonus + child notifications", () => {
+    const chores: Chore[] = [
+      {
+        id: "b1",
+        title: "Mow lawn",
+        childId: "oliver",
+        day: 5,
+        days: [5],
+        frequency: "weekly",
+        priority: 4,
+        value: 400,
+        priceLocked: true,
+        emoji: "🌿",
+        status: "todo",
+      },
+      {
+        id: "b2",
+        title: "Wash car",
+        childId: "oliver",
+        day: 6,
+        days: [6],
+        frequency: "weekly",
+        priority: 4,
+        value: 300,
+        priceLocked: true,
+        emoji: "🚗",
+        status: "todo",
+      },
+    ];
+
+    const overRes = calculateChildBudgetSplit(chores, "oliver", 500, "overwrite_all", undefined, {
+      b1: 400,
+      b2: 300,
+    });
+    expect(overRes.lockedWeeklyPence).toBe(700);
+    expect(overRes.availableToSplitPence).toBe(0);
+    expect(overRes.allocatedWeeklyTotalPence).toBe(700);
+
+    const weekKey = currentWeekKey();
+    const stateAfter = demoAction({ ...demo.state, chores }, "apply_budget_split", {
+      updates: overRes.allocations.map((a) => ({
+        id: a.choreId,
+        value: a.newValue,
+        priority: a.priority,
+        priceLocked: a.lockType === "manual",
+      })),
+      bonusNotices: [
+        {
+          childId: "oliver",
+          title: "🌟 Bonus pocket money unlocked!",
+          message: "Oliver can earn +£2.00 bonus pocket money this week!",
+        },
+      ],
+    });
+
+    expect(stateAfter.chores.every((c) => c.priceLocked === true)).toBe(true);
+    expect(
+      stateAfter.notifications.some(
+        (n) => n.childId === "oliver" && n.targetRole === "child" && n.title.includes("Bonus"),
+      ),
+    ).toBe(true);
+
+    const bonusInfo = childWeeklyBonusInfo(
+      stateAfter,
+      {
+        ...demo.config!,
+        weeklyBudgets: { oliver: 500 },
+        weeklyBonusWeeks: {
+          oliver: { weekKey, baseBudget: 500, bonusAmount: 200 },
+        },
+      },
+      "oliver",
+    );
+    expect(bonusInfo.hasBonus).toBe(true);
+    expect(bonusInfo.bonusAmount).toBe(200);
+    expect(bonusInfo.baseBudget).toBe(500);
   });
 });

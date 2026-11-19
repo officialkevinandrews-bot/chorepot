@@ -1397,6 +1397,7 @@ export type Chore = {
   days?: number[];
   rewardMode?: ChoreRewardMode;
   completedDays?: number[];
+  priceLocked?: boolean;
   requirePhoto?: boolean;
   weekKey?: string;
   seriesId?: string;
@@ -1425,6 +1426,12 @@ export type GoalOverride = Partial<Goal> & {
   updatedAt?: string;
 };
 
+export type WeeklyBonusWeek = {
+  weekKey: string;
+  baseBudget: number;
+  bonusAmount: number;
+};
+
 export type HouseholdConfig = {
   paydayFrequency: "weekly" | "monthly";
   paydayDay: number;
@@ -1440,6 +1447,7 @@ export type HouseholdConfig = {
   goalOverrides?: Record<string, GoalOverride>;
   customGoals?: Goal[];
   weeklyBudgets?: Record<string, number>;
+  weeklyBonusWeeks?: Record<string, WeeklyBonusWeek>;
   updatedAt?: string;
 };
 
@@ -1750,16 +1758,43 @@ export function familyWeeklyPotSummary(
 
 export type BudgetSplitMode = "overwrite_all" | "unpriced_only";
 
+export type ChoreLockType = "none" | "manual" | "pending" | "existing_price";
+
 export type ChoreSplitAllocation = {
   choreId: string;
   priority: ChorePriority;
   locked: boolean;
+  lockType: ChoreLockType;
   oldValue: number;
   newValue: number;
   newWeeklyMax: number;
   daysCount: number;
   rewardMode: ChoreRewardMode;
 };
+
+export function childWeeklyBonusInfo(
+  state: FamilyState,
+  config: HouseholdConfig | undefined,
+  childId: string,
+  now = new Date(),
+): { bonusAmount: number; baseBudget: number; hasBonus: boolean } {
+  const thisWeek = currentWeekKey(now);
+  const entry = config?.weeklyBonusWeeks?.[childId];
+  if (!entry || entry.weekKey !== thisWeek || entry.bonusAmount <= 0) {
+    return {
+      bonusAmount: 0,
+      baseBudget: config?.weeklyBudgets?.[childId] ?? 0,
+      hasBonus: false,
+    };
+  }
+  const summary = childWeeklySummary(state, childId, now);
+  const liveBonus = Math.max(0, summary.weeklyMax - entry.baseBudget);
+  return {
+    bonusAmount: liveBonus,
+    baseBudget: entry.baseBudget,
+    hasBonus: liveBonus > 0,
+  };
+}
 
 export type ChildBudgetSplitResult = {
   childId: string;
@@ -1801,6 +1836,7 @@ export function calculateChildBudgetSplit(
   budgetPence: number,
   mode: BudgetSplitMode,
   priorityOverrides?: Record<string, ChorePriority>,
+  manualLocks?: Record<string, number>,
 ): ChildBudgetSplitResult {
   const targetBudget = Math.max(0, Math.round(budgetPence));
   const childChores = chores.filter((c) => c.childId === childId);
@@ -1828,15 +1864,59 @@ export function calculateChildBudgetSplit(
     const daysCount = choreScheduledDaysCount(c);
     const rMode = choreRewardMode(c);
     const isPerDay = daysCount > 1 && rMode === "per_day";
-    const isLocked = c.status === "pending" || (mode === "unpriced_only" && c.value > 0);
 
-    if (isLocked) {
+    if (c.status === "pending") {
       const wMax = choreWeeklyMax(c);
       lockedWeeklyPence += wMax;
       lockedAllocs.push({
         choreId: c.id,
         priority,
         locked: true,
+        lockType: "pending",
+        oldValue: c.value,
+        newValue: c.value,
+        newWeeklyMax: wMax,
+        daysCount,
+        rewardMode: rMode,
+      });
+    } else if (manualLocks !== undefined && c.id in manualLocks) {
+      const weeklyTarget = Math.max(0, Math.round(manualLocks[c.id] ?? 0));
+      const nextVal = isPerDay ? Math.max(0, Math.round(weeklyTarget / daysCount)) : weeklyTarget;
+      const wMax = isPerDay ? nextVal * daysCount : nextVal;
+      lockedWeeklyPence += wMax;
+      lockedAllocs.push({
+        choreId: c.id,
+        priority,
+        locked: true,
+        lockType: "manual",
+        oldValue: c.value,
+        newValue: nextVal,
+        newWeeklyMax: wMax,
+        daysCount,
+        rewardMode: rMode,
+      });
+    } else if (manualLocks === undefined && c.priceLocked) {
+      const wMax = choreWeeklyMax(c);
+      lockedWeeklyPence += wMax;
+      lockedAllocs.push({
+        choreId: c.id,
+        priority,
+        locked: true,
+        lockType: "manual",
+        oldValue: c.value,
+        newValue: c.value,
+        newWeeklyMax: wMax,
+        daysCount,
+        rewardMode: rMode,
+      });
+    } else if (mode === "unpriced_only" && c.value > 0) {
+      const wMax = choreWeeklyMax(c);
+      lockedWeeklyPence += wMax;
+      lockedAllocs.push({
+        choreId: c.id,
+        priority,
+        locked: true,
+        lockType: "existing_price",
         oldValue: c.value,
         newValue: c.value,
         newWeeklyMax: wMax,
@@ -1958,6 +2038,7 @@ export function calculateChildBudgetSplit(
       choreId: w.choreId,
       priority: w.priority,
       locked: false,
+      lockType: "none",
       oldValue: w.oldValue,
       newValue: w.newValue,
       newWeeklyMax: w.newWeeklyMax,
@@ -2412,6 +2493,22 @@ export function demoAction(
       if (isChorePriority(item["priority"])) {
         target.priority = item["priority"];
       }
+      if (typeof item["priceLocked"] === "boolean") {
+        target.priceLocked = item["priceLocked"];
+      }
+    }
+    const bonusNotifications = Array.isArray(payload["bonusNotices"])
+      ? (payload["bonusNotices"] as Array<Record<string, unknown>>)
+      : [];
+    for (const n of bonusNotifications) {
+      s.notifications.push({
+        id: crypto.randomUUID(),
+        title: String(n["title"] ?? "🌟 Bonus pocket money unlocked!"),
+        message: String(n["message"] ?? ""),
+        childId: String(n["childId"] ?? ""),
+        date: new Date().toISOString(),
+        targetRole: "child",
+      });
     }
   } else if (action === "clear_notifications") {
     s.notifications = [];

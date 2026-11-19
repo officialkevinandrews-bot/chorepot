@@ -865,6 +865,127 @@ h3 {
   opacity: 0.55;
   cursor: not-allowed;
 }
+.chore-priority-pill.pinned {
+  background: var(--mint);
+  color: var(--primary);
+  border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
+}
+.preset-chip.unlock-all-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--card);
+  color: var(--primary);
+  border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
+}
+.budget-split-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.lock-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+.lock-toggle-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.lock-toggle-btn.locked {
+  background: var(--mint);
+  color: var(--primary);
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+}
+.lock-toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.budget-split-price-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 108px;
+}
+.budget-split-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px 8px;
+  gap: 3px;
+  transition: border-color 0.15s;
+}
+.budget-split-input-wrap:focus-within {
+  border-color: var(--primary);
+}
+.budget-split-currency {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted-foreground);
+}
+.budget-split-price-input {
+  width: 52px;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--foreground);
+  text-align: right;
+  outline: none;
+}
+.budget-split-wk-suffix {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted-foreground);
+}
+.over-budget-warning {
+  background: oklch(0.97 0.045 78);
+  border: 1px solid oklch(0.84 0.13 72);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+.bonus-pot-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: oklch(0.97 0.05 84);
+  border: 1px solid oklch(0.84 0.13 76);
+  color: oklch(0.38 0.1 62);
+  font-size: 13px;
+  font-weight: 700;
+}
+.bonus-child-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: oklch(0.97 0.05 84);
+  border: 1px solid oklch(0.84 0.13 76);
+  color: oklch(0.38 0.1 62);
+  font-size: 11px;
+  font-weight: 800;
+}
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

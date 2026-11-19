@@ -33,6 +33,9 @@ import {
   Trophy,
   Minus,
   Lock,
+  Unlock,
+  Gift,
+  AlertTriangle,
   Tablet,
   Smartphone,
   Sparkles,
@@ -73,11 +76,14 @@ import {
   formatChoreSchedule,
   nextPaydayInfo,
   childWeeklySummary,
+  childWeeklyBonusInfo,
+  currentWeekKey,
   familyWeeklyPotSummary,
   choreRewardMode,
   choreScheduledDaysCount,
   choreWeeklyMax,
   type BudgetSplitMode,
+  type WeeklyBonusWeek,
   type ChildThemeColor,
   type ChoreCategory,
   type ChorePriority,
@@ -241,6 +247,9 @@ export function Dashboard({
   const [splitBudgetsStr, setSplitBudgetsStr] = useState<Record<string, string>>({});
   const [splitPriorities, setSplitPriorities] = useState<Record<string, ChorePriority>>({});
   const [splitOverwriteConfirmed, setSplitOverwriteConfirmed] = useState(false);
+  const [splitManualLocks, setSplitManualLocks] = useState<Record<string, number>>({});
+  const [splitManualText, setSplitManualText] = useState<Record<string, string>>({});
+  const [splitAllowBonus, setSplitAllowBonus] = useState<Record<string, boolean>>({});
 
   // Payday & PIN form state
   const [paydayFreq, setPaydayFreq] = useState<"weekly" | "monthly">("weekly");
@@ -282,13 +291,52 @@ export function Dashboard({
   );
   const paydayInfo = nextPaydayInfo(data.config);
   const celebrationsEnabled = data.preferences?.celebrations !== false;
-  const visibleNotifications = inKidMode ? [] : data.state.notifications;
   const overviewChildIds = isChild
     ? [activeChild]
     : child === "all"
       ? children.map((c) => c.id)
       : [child];
   const weeklyPot = familyWeeklyPotSummary(data.state, overviewChildIds);
+  const overviewBonusItems = overviewChildIds
+    .map((id) => {
+      const m = children.find((c) => c.id === id);
+      const info = childWeeklyBonusInfo(data.state, data.config, id);
+      return m && info.hasBonus ? { child: m, ...info } : null;
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+  const totalOverviewBonus = overviewBonusItems.reduce((sum, item) => sum + item.bonusAmount, 0);
+  const activeBonusInfo = isChild
+    ? childWeeklyBonusInfo(data.state, data.config, activeChild)
+    : null;
+  const visibleNotifications = (() => {
+    const activeMember = children.find((c) => c.id === activeChild);
+    const ensureBonusNotice = (list: typeof data.state.notifications) => {
+      if (
+        !activeBonusInfo?.hasBonus ||
+        list.some((n) => n.childId === activeChild && n.title.toLowerCase().includes("bonus"))
+      ) {
+        return list;
+      }
+      return [
+        ...list,
+        {
+          id: `bonus-notice-${activeChild}`,
+          title: "🌟 Bonus pocket money unlocked!",
+          message: `${activeMember?.name ?? "You"} can earn +${money(activeBonusInfo.bonusAmount)} extra pocket money above the ${money(activeBonusInfo.baseBudget)} weekly budget this week!`,
+          childId: activeChild,
+          date: new Date().toISOString(),
+          targetRole: "child" as const,
+        },
+      ];
+    };
+    if (!inKidMode) {
+      return isChild ? ensureBonusNotice(data.state.notifications) : data.state.notifications;
+    }
+    const kidNotices = data.state.notifications.filter(
+      (n) => n.targetRole === "child" && n.childId === activeChild,
+    );
+    return ensureBonusNotice(kidNotices);
+  })();
   const isMultiDayForm =
     choreFrequency === "daily" || (choreFrequency === "weekly" && choreDays.length > 1);
   const formScheduledDaysCount =
@@ -377,7 +425,7 @@ export function Dashboard({
             ? "Day confirmed! Keep going to earn the weekly reward."
             : "Approved! Pocket money added."
           : action === "apply_budget_split"
-            ? "Weekly pocket money split across chores!"
+            ? "Budget saved!"
             : action === "complete"
               ? "Amazing work! Sent for approval."
               : action === "pay"
@@ -450,7 +498,9 @@ export function Dashboard({
       setChoreValueStr((item.value / 100).toFixed(2));
       setChoreRequirePhoto(Boolean(item.requirePhoto));
     } else if (kind === "budget_split") {
+      const thisWeek = currentWeekKey();
       const nextBudgets: Record<string, string> = {};
+      const nextAllowBonus: Record<string, boolean> = {};
       for (const c of children) {
         const savedBudget = data.config?.weeklyBudgets?.[c.id];
         const currentMax = childWeeklySummary(data.state, c.id).weeklyMax;
@@ -461,15 +511,29 @@ export function Dashboard({
               ? currentMax
               : 500;
         nextBudgets[c.id] = (initialPence / 100).toFixed(2);
+        const existingBonus = data.config?.weeklyBonusWeeks?.[c.id];
+        nextAllowBonus[c.id] = Boolean(
+          existingBonus && existingBonus.weekKey === thisWeek && existingBonus.bonusAmount > 0,
+        );
       }
       const nextPrios: Record<string, ChorePriority> = {};
+      const nextLocks: Record<string, number> = {};
+      const nextManualText: Record<string, string> = {};
       for (const c of data.state.chores) {
         nextPrios[c.id] = resolveChorePriority(c);
+        if (c.priceLocked && c.status !== "pending") {
+          const wMax = choreWeeklyMax(c);
+          nextLocks[c.id] = wMax;
+          nextManualText[c.id] = (wMax / 100).toFixed(2);
+        }
       }
       const anyPriced = data.state.chores.some((c) => c.value > 0 && c.status !== "pending");
       const anyUnpriced = data.state.chores.some((c) => c.value === 0 && c.status !== "pending");
       setSplitBudgetsStr(nextBudgets);
       setSplitPriorities(nextPrios);
+      setSplitManualLocks(nextLocks);
+      setSplitManualText(nextManualText);
+      setSplitAllowBonus(nextAllowBonus);
       setSplitMode(anyPriced && anyUnpriced ? "unpriced_only" : "overwrite_all");
       setSplitOverwriteConfirmed(!anyPriced);
     } else if (kind === "payday" || kind === "settings") {
@@ -583,11 +647,19 @@ export function Dashboard({
       }
     } else if (modal === "budget_split") {
       if (splitMode === "overwrite_all" && hasExistingPricedChores && !splitOverwriteConfirmed) {
-        toast.error("Please confirm you want to overwrite existing chore rewards first.");
+        toast.error("Please confirm you want to overwrite unlocked chore rewards first.");
         return;
       }
+      const thisWeek = currentWeekKey();
       const weeklyBudgets: Record<string, number> = {};
-      const updates: Array<{ id: string; value: number; priority: ChorePriority }> = [];
+      const weeklyBonusWeeks: Record<string, WeeklyBonusWeek> = {};
+      const bonusNotices: Array<{ title: string; message: string; childId: string }> = [];
+      const updates: Array<{
+        id: string;
+        value: number;
+        priority: ChorePriority;
+        priceLocked?: boolean;
+      }> = [];
       for (const c of children) {
         const budgetPence = Math.max(0, Math.round((Number(splitBudgetsStr[c.id]) || 0) * 100));
         weeklyBudgets[c.id] = budgetPence;
@@ -597,24 +669,66 @@ export function Dashboard({
           budgetPence,
           splitMode,
           splitPriorities,
+          splitManualLocks,
         );
+        const overBudgetPence = Math.max(0, result.allocatedWeeklyTotalPence - budgetPence);
+        if (overBudgetPence > 0 && !splitAllowBonus[c.id]) {
+          toast.error(
+            `${c.name}’s locked chores are ${money(overBudgetPence)} over budget. Tick bonus pocket money, raise their budget, or unlock a chore.`,
+          );
+          return;
+        }
+        if (overBudgetPence > 0 && splitAllowBonus[c.id]) {
+          weeklyBonusWeeks[c.id] = {
+            weekKey: thisWeek,
+            baseBudget: budgetPence,
+            bonusAmount: overBudgetPence,
+          };
+          const prevBonus = data.config?.weeklyBonusWeeks?.[c.id];
+          if (
+            !prevBonus ||
+            prevBonus.weekKey !== thisWeek ||
+            prevBonus.bonusAmount !== overBudgetPence
+          ) {
+            bonusNotices.push({
+              childId: c.id,
+              title: "🌟 Bonus pocket money unlocked!",
+              message: `${c.name} can earn +${money(overBudgetPence)} bonus pocket money above their ${money(budgetPence)} weekly budget (${money(result.allocatedWeeklyTotalPence)} max this week)!`,
+            });
+          }
+        } else {
+          weeklyBonusWeeks[c.id] = {
+            weekKey: thisWeek,
+            baseBudget: budgetPence,
+            bonusAmount: 0,
+          };
+        }
+
         for (const alloc of result.allocations) {
-          if (!alloc.locked) {
+          if (alloc.lockType === "pending") {
+            if (splitPriorities[alloc.choreId] !== undefined) {
+              updates.push({
+                id: alloc.choreId,
+                value: alloc.oldValue,
+                priority: alloc.priority,
+              });
+            }
+          } else {
             updates.push({
               id: alloc.choreId,
               value: alloc.newValue,
               priority: alloc.priority,
-            });
-          } else if (splitPriorities[alloc.choreId] !== undefined) {
-            updates.push({
-              id: alloc.choreId,
-              value: alloc.oldValue,
-              priority: alloc.priority,
+              priceLocked: alloc.lockType === "manual",
             });
           }
         }
       }
-      await act("apply_budget_split", { weeklyBudgets, updates });
+      await act("apply_budget_split", {
+        weeklyBudgets,
+        weeklyBonusWeeks,
+        bonusNotices,
+        updates,
+      });
     } else if (modal === "reject" && selected) {
       await act("reject", { id: selected.id, note: value("note") });
     } else if (modal === "goal") {
@@ -1201,6 +1315,35 @@ export function Dashboard({
                     </Button>
                   )}
                 </div>
+                {totalOverviewBonus > 0 && (
+                  <div className="bonus-pot-banner">
+                    <Gift size={16} className="shrink-0" />
+                    <span>
+                      {isChild ? (
+                        <>
+                          <strong>Bonus pocket money unlocked!</strong> You can earn +
+                          {money(totalOverviewBonus)} extra above your{" "}
+                          {money(overviewBonusItems[0]?.baseBudget ?? 0)} weekly budget this week.
+                        </>
+                      ) : overviewBonusItems.length === 1 ? (
+                        <>
+                          <strong>Bonus week active:</strong> {overviewBonusItems[0]?.child.name}{" "}
+                          can earn +{money(overviewBonusItems[0]?.bonusAmount ?? 0)} extra above
+                          their {money(overviewBonusItems[0]?.baseBudget ?? 0)} weekly budget.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Bonus week active:</strong> +{money(totalOverviewBonus)} extra
+                          across{" "}
+                          {overviewBonusItems
+                            .map((b) => `${b.child.name} (+${money(b.bonusAmount)})`)
+                            .join(", ")}
+                          .
+                        </>
+                      )}
+                    </span>
+                  </div>
+                )}
               </section>
 
               <section className="stats-grid">
@@ -1393,6 +1536,7 @@ export function Dashboard({
                       .filter((c) => !isChild || c.id === activeChild)
                       .map((m) => {
                         const childPot = childWeeklySummary(data.state, m.id);
+                        const childBonus = childWeeklyBonusInfo(data.state, data.config, m.id);
                         return (
                           <div
                             className={`child-card child-theme-${m.themeColor ?? "sunset"}`}
@@ -1447,6 +1591,15 @@ export function Dashboard({
                                   />
                                 )}
                               </div>
+                              {childBonus.hasBonus && (
+                                <div className="bonus-child-badge">
+                                  <Gift size={12} />
+                                  <span>
+                                    Includes +{money(childBonus.bonusAmount)} bonus above{" "}
+                                    {money(childBonus.baseBudget)} budget
+                                  </span>
+                                </div>
+                              )}
                             </div>
                             <div className="child-goal">
                               {data.state.goals
@@ -2493,7 +2646,9 @@ export function Dashboard({
                       >
                         <div>
                           <strong>Overwrite all chores</strong>
-                          <span>Recalculate every chore from each child’s weekly budget</span>
+                          <span>
+                            Recalculate every unlocked chore from each child’s weekly budget
+                          </span>
                         </div>
                       </button>
                       <button
@@ -2517,7 +2672,10 @@ export function Dashboard({
                           checked={splitOverwriteConfirmed}
                           onChange={(e) => setSplitOverwriteConfirmed(e.target.checked)}
                         />
-                        <span>Yes, overwrite existing chore prices with this new split</span>
+                        <span>
+                          Yes, overwrite unlocked chore prices with this split (pinned locks stay
+                          kept)
+                        </span>
                       </label>
                     )}
                   </div>
@@ -2535,6 +2693,14 @@ export function Dashboard({
                     budgetPence,
                     splitMode,
                     splitPriorities,
+                    splitManualLocks,
+                  );
+                  const childManualIds = childChores
+                    .filter((ch) => ch.id in splitManualLocks)
+                    .map((ch) => ch.id);
+                  const overBudgetPence = Math.max(
+                    0,
+                    splitRes.allocatedWeeklyTotalPence - budgetPence,
                   );
                   return (
                     <div
@@ -2550,6 +2716,7 @@ export function Dashboard({
                               {childChores.length} chores · Allocated:{" "}
                               <strong>{money(splitRes.allocatedWeeklyTotalPence)}</strong> of{" "}
                               <strong>{money(budgetPence)}</strong>
+                              {overBudgetPence > 0 ? ` (+${money(overBudgetPence)} over)` : ""}
                             </small>
                           </div>
                         </div>
@@ -2589,31 +2756,123 @@ export function Dashboard({
                             {money(p)}/wk
                           </button>
                         ))}
+                        {childManualIds.length > 0 && (
+                          <button
+                            type="button"
+                            className="preset-chip unlock-all-chip ml-auto"
+                            onClick={() => {
+                              setSplitManualLocks((prev) => {
+                                const next = { ...prev };
+                                for (const id of childManualIds) delete next[id];
+                                return next;
+                              });
+                              setSplitManualText((prev) => {
+                                const next = { ...prev };
+                                for (const id of childManualIds) delete next[id];
+                                return next;
+                              });
+                            }}
+                          >
+                            <Unlock size={12} /> Unlock all ({childManualIds.length})
+                          </button>
+                        )}
                       </div>
 
-                      {splitMode === "unpriced_only" &&
-                        splitRes.lockedWeeklyPence > budgetPence && (
-                          <p className="mt-2 text-xs text-destructive">
-                            Locked chores already total {money(splitRes.lockedWeeklyPence)} (above{" "}
-                            {money(budgetPence)}). Increase the budget or choose “Overwrite all
-                            chores”.
-                          </p>
-                        )}
+                      {overBudgetPence > 0 && (
+                        <div className="over-budget-warning mt-2">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+                            <div className="min-w-0 flex-1">
+                              <strong className="block text-xs font-extrabold">
+                                Locked chores total {money(splitRes.allocatedWeeklyTotalPence)} —{" "}
+                                {money(overBudgetPence)} over {c.name}’s {money(budgetPence)} budget
+                              </strong>
+                              <label className="checkbox-label mt-2">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(splitAllowBonus[c.id])}
+                                  onChange={(e) =>
+                                    setSplitAllowBonus((prev) => ({
+                                      ...prev,
+                                      [c.id]: e.target.checked,
+                                    }))
+                                  }
+                                />
+                                <span>
+                                  Let {c.name} earn {money(overBudgetPence)} extra as bonus pocket
+                                  money this week (shown on Overview & notifies {c.name})
+                                </span>
+                              </label>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  className="preset-chip"
+                                  onClick={() => {
+                                    setSplitBudgetsStr((prev) => ({
+                                      ...prev,
+                                      [c.id]: (splitRes.allocatedWeeklyTotalPence / 100).toFixed(2),
+                                    }));
+                                    setSplitAllowBonus((prev) => ({ ...prev, [c.id]: false }));
+                                  }}
+                                >
+                                  Raise budget to {money(splitRes.allocatedWeeklyTotalPence)}
+                                </button>
+                                {childManualIds.length > 0 && (
+                                  <button
+                                    type="button"
+                                    className="preset-chip"
+                                    onClick={() => {
+                                      setSplitManualLocks((prev) => {
+                                        const next = { ...prev };
+                                        for (const id of childManualIds) delete next[id];
+                                        return next;
+                                      });
+                                      setSplitManualText((prev) => {
+                                        const next = { ...prev };
+                                        for (const id of childManualIds) delete next[id];
+                                        return next;
+                                      });
+                                    }}
+                                  >
+                                    Unlock all chores
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="mt-3 space-y-2">
                         {splitRes.allocations.map((alloc) => {
                           const ch = childChores.find((item) => item.id === alloc.choreId);
                           if (!ch) return null;
                           const prio = splitPriorities[ch.id] ?? alloc.priority;
+                          const isPendingRow = alloc.lockType === "pending";
+                          const isManualLock = alloc.lockType === "manual";
+                          const weeklyInputVal =
+                            ch.id in splitManualText
+                              ? splitManualText[ch.id]
+                              : (alloc.newWeeklyMax / 100).toFixed(2);
                           return (
                             <div className="budget-split-row" key={ch.id}>
-                              <div className="min-w-0 flex-1">
+                              <div className="min-w-[140px] flex-1">
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <span>{ch.emoji}</span>
                                   <strong className="text-xs">{ch.title}</strong>
-                                  {alloc.locked && (
+                                  {alloc.lockType === "pending" && (
                                     <span className="chore-priority-pill">
-                                      <Lock size={10} /> Locked ({money(alloc.oldValue)})
+                                      <Lock size={10} /> Pending
+                                    </span>
+                                  )}
+                                  {alloc.lockType === "manual" && (
+                                    <span className="chore-priority-pill pinned">
+                                      <Lock size={10} /> Pinned
+                                    </span>
+                                  )}
+                                  {alloc.lockType === "existing_price" && (
+                                    <span className="chore-priority-pill">
+                                      <Lock size={10} /> Kept ({money(alloc.oldValue)})
                                     </span>
                                   )}
                                 </div>
@@ -2632,37 +2891,152 @@ export function Dashboard({
                                 </small>
                               </div>
 
-                              <div
-                                className="prio-star-group"
-                                role="group"
-                                aria-label={`Priority for ${ch.title}`}
-                              >
-                                {([1, 2, 3, 4] as ChorePriority[]).map((lvl) => (
-                                  <button
-                                    key={lvl}
-                                    type="button"
-                                    disabled={alloc.locked}
-                                    title={getChorePriorityInfo(lvl).label}
-                                    className={`prio-star-btn ${prio >= lvl ? "filled" : ""}`}
-                                    onClick={() =>
-                                      setSplitPriorities((prev) => ({
-                                        ...prev,
-                                        [ch.id]: lvl,
-                                      }))
-                                    }
-                                  >
-                                    ★
-                                  </button>
-                                ))}
-                              </div>
+                              <div className="budget-split-controls">
+                                <div
+                                  className="prio-star-group"
+                                  role="group"
+                                  aria-label={`Priority for ${ch.title}`}
+                                >
+                                  {([1, 2, 3, 4] as ChorePriority[]).map((lvl) => (
+                                    <button
+                                      key={lvl}
+                                      type="button"
+                                      disabled={alloc.locked}
+                                      title={getChorePriorityInfo(lvl).label}
+                                      className={`prio-star-btn ${prio >= lvl ? "filled" : ""}`}
+                                      onClick={() =>
+                                        setSplitPriorities((prev) => ({
+                                          ...prev,
+                                          [ch.id]: lvl,
+                                        }))
+                                      }
+                                    >
+                                      ★
+                                    </button>
+                                  ))}
+                                </div>
 
-                              <div className="text-right">
-                                <span className="money-tag">{money(alloc.newValue)}</span>
-                                {alloc.daysCount > 1 && alloc.rewardMode === "per_day" && (
+                                <button
+                                  type="button"
+                                  disabled={isPendingRow}
+                                  className={`lock-toggle-btn ${isManualLock ? "locked" : ""}`}
+                                  aria-label={
+                                    isPendingRow
+                                      ? `${ch.title} pending approval`
+                                      : isManualLock
+                                        ? `Unlock ${ch.title}`
+                                        : `Lock ${ch.title}`
+                                  }
+                                  title={
+                                    isPendingRow
+                                      ? "Pending chores cannot be changed until reviewed"
+                                      : isManualLock
+                                        ? "Pinned at this weekly amount — click to unlock and auto-split"
+                                        : "Click to lock this value so other chores rebalance around it"
+                                  }
+                                  onClick={() => {
+                                    if (isManualLock) {
+                                      setSplitManualLocks((prev) => {
+                                        const next = { ...prev };
+                                        delete next[ch.id];
+                                        return next;
+                                      });
+                                      setSplitManualText((prev) => {
+                                        const next = { ...prev };
+                                        delete next[ch.id];
+                                        return next;
+                                      });
+                                    } else {
+                                      setSplitManualLocks((prev) => ({
+                                        ...prev,
+                                        [ch.id]: alloc.newWeeklyMax,
+                                      }));
+                                      setSplitManualText((prev) => ({
+                                        ...prev,
+                                        [ch.id]: (alloc.newWeeklyMax / 100).toFixed(2),
+                                      }));
+                                    }
+                                  }}
+                                >
+                                  {isManualLock || isPendingRow ? (
+                                    <Lock size={14} />
+                                  ) : (
+                                    <Unlock size={14} />
+                                  )}
+                                </button>
+
+                                <div className="budget-split-price-col">
+                                  <div className="budget-split-input-wrap">
+                                    <span className="budget-split-currency">£</span>
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      disabled={isPendingRow}
+                                      aria-label={`Weekly reward for ${ch.title}`}
+                                      className="budget-split-price-input"
+                                      value={weeklyInputVal}
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        if (raw !== "" && !/^\d*(\.\d*)?$/.test(raw)) return;
+                                        setSplitManualText((prev) => ({ ...prev, [ch.id]: raw }));
+                                        const parsed = Number(raw);
+                                        if (
+                                          raw.trim() !== "" &&
+                                          Number.isFinite(parsed) &&
+                                          parsed >= 0
+                                        ) {
+                                          const weeklyPence = Math.round(parsed * 100);
+                                          setSplitManualLocks((prev) => ({
+                                            ...prev,
+                                            [ch.id]: weeklyPence,
+                                          }));
+                                        }
+                                      }}
+                                      onBlur={() => {
+                                        const raw = splitManualText[ch.id];
+                                        if (raw === undefined) return;
+                                        const parsed = Number(raw);
+                                        if (
+                                          raw.trim() === "" ||
+                                          !Number.isFinite(parsed) ||
+                                          parsed < 0
+                                        ) {
+                                          setSplitManualText((prev) => {
+                                            const next = { ...prev };
+                                            delete next[ch.id];
+                                            return next;
+                                          });
+                                          return;
+                                        }
+                                        const weeklyPence = Math.round(parsed * 100);
+                                        const isPerDay =
+                                          alloc.daysCount > 1 && alloc.rewardMode === "per_day";
+                                        const snappedDaily = isPerDay
+                                          ? Math.max(0, Math.round(weeklyPence / alloc.daysCount))
+                                          : weeklyPence;
+                                        const effectiveWeekly = isPerDay
+                                          ? snappedDaily * alloc.daysCount
+                                          : snappedDaily;
+                                        setSplitManualLocks((prev) => ({
+                                          ...prev,
+                                          [ch.id]: effectiveWeekly,
+                                        }));
+                                        setSplitManualText((prev) => ({
+                                          ...prev,
+                                          [ch.id]: (effectiveWeekly / 100).toFixed(2),
+                                        }));
+                                      }}
+                                    />
+                                    <span className="budget-split-wk-suffix">/wk</span>
+                                  </div>
                                   <small className="mt-0.5 block text-[10px] font-semibold text-muted-foreground">
-                                    {money(alloc.newWeeklyMax)}/wk max
+                                    {alloc.daysCount > 1 && alloc.rewardMode === "per_day"
+                                      ? `${money(alloc.newValue)}/day × ${alloc.daysCount}`
+                                      : alloc.daysCount > 1
+                                        ? `${money(alloc.newValue)}/wk total`
+                                        : `${money(alloc.newValue)}/chore`}
                                   </small>
-                                )}
+                                </div>
                               </div>
                             </div>
                           );
@@ -2683,14 +3057,10 @@ export function Dashboard({
                     children.length === 0 ||
                     (hasExistingPricedChores &&
                       splitMode === "overwrite_all" &&
-                      !splitOverwriteConfirmed) ||
-                    (splitMode === "unpriced_only" && unpricedChoresCount === 0)
+                      !splitOverwriteConfirmed)
                   }
                 >
-                  <Sparkles size={15} />{" "}
-                  {hasExistingPricedChores && splitMode === "overwrite_all"
-                    ? "Confirm overwrite & apply weekly split"
-                    : "Apply weekly budget split"}
+                  <Sparkles size={15} /> Save budget
                 </Button>
               </>
             )}
@@ -3163,7 +3533,7 @@ export function Dashboard({
                       : "All quiet in your family space."}
                   </div>
                 )}
-                {visibleNotifications.length > 0 && (
+                {!inKidMode && visibleNotifications.length > 0 && (
                   <Button
                     type="button"
                     variant="ghost"
