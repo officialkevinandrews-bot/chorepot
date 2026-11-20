@@ -56,6 +56,10 @@ object ChorepotUrls {
             return NavigationTarget.CUSTOM_TAB_OAUTH
         }
 
+        if (scheme == "https" && host == APP_HOST && path.endsWith(".apk")) {
+            return NavigationTarget.EXTERNAL_BROWSER
+        }
+
         if (scheme == "https" && host == APP_HOST) {
             return NavigationTarget.IN_APP
         }

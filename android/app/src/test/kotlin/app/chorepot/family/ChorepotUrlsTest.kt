@@ -32,6 +32,10 @@ class ChorepotUrlsTest {
             ChorepotUrls.classifyNavigation("https://wa.me/?text=hello"),
         )
         assertEquals(
+            NavigationTarget.EXTERNAL_BROWSER,
+            ChorepotUrls.classifyNavigation("https://tidy-tasks-pocket-pals.lovable.app/downloads/chorepot.apk"),
+        )
+        assertEquals(
             NavigationTarget.EXTERNAL_APP,
             ChorepotUrls.classifyNavigation("mailto:parent@example.com?subject=Join"),
         )

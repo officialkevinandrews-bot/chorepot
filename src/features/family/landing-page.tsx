@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Sprout,
@@ -12,9 +12,12 @@ import {
   Sparkles,
   ShieldCheck,
   KeyRound,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AndroidDownloadCard } from "./android-download-card";
+import { ANDROID_APK_FILENAME, ANDROID_APK_PATH, isRunningInApk } from "./model";
 
 const screenshots = [
   {
@@ -49,7 +52,12 @@ const screenshots = [
 export function LandingPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [activeShot, setActiveShot] = useState<string>("overview");
+  const [inApk, setInApk] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    setInApk(isRunningInApk());
+  }, []);
 
   function joinWithCode(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -74,6 +82,7 @@ export function LandingPage() {
           <a href="#how-it-works">How it works</a>
           <a href="#screenshots">Inside the app</a>
           <a href="#features">Features</a>
+          {!inApk && <a href="#android-app">Android App</a>}
         </nav>
 
         <div className="landing-actions">
@@ -115,6 +124,17 @@ export function LandingPage() {
               <Button size="lg" variant="outline" asChild>
                 <Link to="/auth">Sign in to your family</Link>
               </Button>
+              {!inApk && (
+                <Button size="lg" variant="secondary" asChild>
+                  <a
+                    href={ANDROID_APK_PATH}
+                    download={ANDROID_APK_FILENAME}
+                    type="application/vnd.android.package-archive"
+                  >
+                    <Download size={16} /> Download Android APK
+                  </a>
+                </Button>
+              )}
             </div>
 
             <form id="join-code" className="hero-join-box" onSubmit={joinWithCode}>
@@ -298,6 +318,20 @@ export function LandingPage() {
           </div>
         </section>
 
+        {!inApk && (
+          <section id="android-app" className="landing-section android-download-band">
+            <div className="section-intro">
+              <span className="eyebrow">ANDROID PHONES & TABLETS</span>
+              <h2>Download the Chorepot Android app</h2>
+              <p>
+                Put Chorepot straight on your phone and your children’s tablets—complete with Google
+                sign-in, camera photo proof, and live sync.
+              </p>
+            </div>
+            <AndroidDownloadCard showQr />
+          </section>
+        )}
+
         <section className="cta-banner">
           <div className="cta-banner-inner">
             <div>
@@ -328,10 +362,20 @@ export function LandingPage() {
         <div className="flex items-center gap-2 font-semibold text-foreground">
           <Sprout size={16} className="text-primary" /> Chorepot
         </div>
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <ShieldCheck size={13} /> Private per-household data
           </span>
+          {!inApk && (
+            <a
+              href={ANDROID_APK_PATH}
+              download={ANDROID_APK_FILENAME}
+              type="application/vnd.android.package-archive"
+              className="font-semibold text-primary hover:underline"
+            >
+              Download Android APK
+            </a>
+          )}
           <span>All amounts in GBP (£/p)</span>
         </div>
       </footer>

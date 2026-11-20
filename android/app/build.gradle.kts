@@ -1,6 +1,15 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
+}
+
+val keystoreProps = Properties().apply {
+  val propsFile = rootProject.file("keystore.properties")
+  if (propsFile.exists()) {
+    propsFile.inputStream().use(::load)
+  }
 }
 
 android {
@@ -14,10 +23,27 @@ android {
     versionName = "1.0.0"
   }
 
+  signingConfigs {
+    val storePath = System.getenv("CHOREPOT_STORE_FILE") ?: keystoreProps.getProperty("storeFile")
+    val storePass = System.getenv("CHOREPOT_STORE_PASSWORD") ?: keystoreProps.getProperty("storePassword")
+    val keyAliasVal = System.getenv("CHOREPOT_KEY_ALIAS") ?: keystoreProps.getProperty("keyAlias")
+    val keyPassVal = System.getenv("CHOREPOT_KEY_PASSWORD") ?: keystoreProps.getProperty("keyPassword")
+    if (!storePath.isNullOrBlank() && !storePass.isNullOrBlank() && !keyAliasVal.isNullOrBlank() && !keyPassVal.isNullOrBlank()) {
+      create("release") {
+        storeFile = file(storePath)
+        storePassword = storePass
+        keyAlias = keyAliasVal
+        keyPassword = keyPassVal
+      }
+    }
+  }
+
   buildTypes {
     release {
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      signingConfig = signingConfigs.findByName("release")
     }
   }
   compileOptions {

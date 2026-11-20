@@ -23,6 +23,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { executeFamilyAction, fetchAuthenticatedFamily } from "./family-client";
+import { AndroidDownloadCard } from "./android-download-card";
 import {
   CHILD_THEMES,
   CHORE_CATEGORIES,
@@ -832,6 +833,8 @@ export function OnboardingWizard({
                 </div>
               </div>
             )}
+
+            <AndroidDownloadCard variant="compact" />
 
             <div>
               <div className="mb-2 flex items-center justify-between">

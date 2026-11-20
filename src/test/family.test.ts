@@ -26,6 +26,9 @@ import {
   isChildThemeColor,
   isRunningInApk,
   tryNativeAndroidShare,
+  ANDROID_APK_PATH,
+  ANDROID_APK_FILENAME,
+  androidApkDownloadUrl,
   type Chore,
 } from "../features/family/model";
 
@@ -258,6 +261,14 @@ describe("Child theme colours & APK detection", () => {
   it("defaults isRunningInApk and tryNativeAndroidShare to false in normal browser environments", () => {
     expect(isRunningInApk()).toBe(false);
     expect(tryNativeAndroidShare("Join", "Hello", "https://chorepot.app")).toBe(false);
+  });
+
+  it("builds consistent Android APK download URLs", () => {
+    expect(ANDROID_APK_PATH).toBe("/downloads/chorepot.apk");
+    expect(ANDROID_APK_FILENAME).toMatch(/\.apk$/);
+    expect(androidApkDownloadUrl("https://tidy-tasks-pocket-pals.lovable.app/")).toBe(
+      "https://tidy-tasks-pocket-pals.lovable.app/downloads/chorepot.apk",
+    );
   });
 
   it("invokes ChorepotAndroid.share bridge when running inside the Android APK WebView", () => {

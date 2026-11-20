@@ -95,6 +95,7 @@ import {
   type Goal,
   type StarterChoreTemplate,
 } from "./model";
+import { AndroidDownloadCard } from "./android-download-card";
 
 const navigation = [
   { name: "Overview", short: "Overview", icon: LayoutDashboard },
@@ -2136,6 +2137,8 @@ export function Dashboard({
                   </div>
                 </div>
               )}
+
+              <AndroidDownloadCard showQr title="Install Chorepot on Android phones & tablets" />
             </section>
           )}
 
@@ -3516,6 +3519,7 @@ export function Dashboard({
                     <small>Send this link to your family member. Valid for 7 days.</small>
                   </div>
                 )}
+                {!isApk && <AndroidDownloadCard variant="compact" />}
               </>
             )}
 
@@ -3649,9 +3653,15 @@ export function Dashboard({
                   </>
                 )}
                 <Button disabled={busy}>Save profile</Button>
-                <p className="text-sm text-muted-foreground">
-                  On your phone, add Chorepot to your home screen from your browser’s menu.
-                </p>
+                {!isApk && (
+                  <>
+                    <AndroidDownloadCard variant="compact" />
+                    <p className="text-sm text-muted-foreground">
+                      On your phone or tablet, you can also add Chorepot to your home screen from
+                      your browser’s menu.
+                    </p>
+                  </>
+                )}
               </>
             )}
           </form>

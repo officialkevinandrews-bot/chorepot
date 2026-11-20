@@ -62,6 +62,19 @@ export function tryNativeAndroidShare(title: string, text: string, url: string):
   return false;
 }
 
+export const ANDROID_APK_PATH = "/downloads/chorepot.apk";
+export const ANDROID_APK_FILENAME = "Chorepot-v1.0.0.apk";
+export const ANDROID_APK_VERSION = "1.0.0";
+
+export function androidApkDownloadUrl(origin?: string): string {
+  const base =
+    origin ??
+    (typeof window !== "undefined"
+      ? window.location.origin
+      : "https://tidy-tasks-pocket-pals.lovable.app");
+  return `${base.replace(/\/+$/, "")}${ANDROID_APK_PATH}`;
+}
+
 export type ManagedChild = {
   id: string;
   name: string;
