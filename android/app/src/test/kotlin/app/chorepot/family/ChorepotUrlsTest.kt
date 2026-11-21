@@ -9,6 +9,14 @@ class ChorepotUrlsTest {
     fun classifiesInAppAndOAuthAndExternalRoutes() {
         assertEquals(
             NavigationTarget.IN_APP,
+            ChorepotUrls.classifyNavigation(ChorepotUrls.START_URL),
+        )
+        assertEquals(
+            "https://tidy-tasks-pocket-pals.lovable.app/dashboard",
+            ChorepotUrls.START_URL,
+        )
+        assertEquals(
+            NavigationTarget.IN_APP,
             ChorepotUrls.classifyNavigation("https://tidy-tasks-pocket-pals.lovable.app/dashboard"),
         )
         assertEquals(

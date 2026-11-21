@@ -1059,7 +1059,7 @@ export function Dashboard({
       )}
 
       <aside className={`sidebar ${mobile ? "mobile-open" : ""}`}>
-        <Link to="/" className="brand">
+        <Link to={isApk ? "/dashboard" : "/"} className="brand">
           <span className="brand-mark">
             <Sprout />
           </span>

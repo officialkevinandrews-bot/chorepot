@@ -155,6 +155,7 @@ class MainActivity : ComponentActivity() {
             hasLoadError = false
             val view = webView
             if (view != null) {
+                view.onResume()
                 view.loadUrl(oauthReturnUrl)
             } else {
                 pendingRedirectUrl = oauthReturnUrl
@@ -201,7 +202,7 @@ class MainActivity : ComponentActivity() {
                 factory = { context ->
                     createConfiguredWebView(context).also { created ->
                         webView = created
-                        val startUrl = pendingRedirectUrl ?: ChorepotUrls.BASE_URL
+                        val startUrl = pendingRedirectUrl ?: ChorepotUrls.START_URL
                         pendingRedirectUrl = null
                         created.loadUrl(startUrl)
                     }

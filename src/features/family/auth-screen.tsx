@@ -9,6 +9,15 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { isRunningInApk } from "./model";
 
+// Capture URL hash at module load before Supabase's detectSessionInUrl clears it.
+let capturedPageHash = typeof window !== "undefined" ? window.location.hash : "";
+
+function consumeCapturedApkHash(): string {
+  const value = capturedPageHash;
+  capturedPageHash = "";
+  return value;
+}
+
 export function AuthScreen({
   code,
   defaultSignup,
@@ -24,9 +33,18 @@ export function AuthScreen({
     [busy, setBusy] = useState(false),
     [sent, setSent] = useState(false),
     [forgot, setForgot] = useState(false),
+    [inApk, setInApk] = useState(false),
+    [completingApkLogin, setCompletingApkLogin] = useState(false),
+    [apkAutoJumpWaitingTap, setApkAutoJumpWaitingTap] = useState(false),
     [apkReturnUrl, setApkReturnUrl] = useState(""),
-    [initialHash] = useState(() => (typeof window !== "undefined" ? window.location.hash : ""));
+    [initialHash] = useState(() =>
+      typeof window !== "undefined" ? window.location.hash || capturedPageHash : "",
+    );
   const navigate = useNavigate();
+
+  useEffect(() => {
+    setInApk(isRunningInApk());
+  }, []);
 
   useEffect(() => {
     if (code || defaultSignup) setSignup(true);
@@ -42,15 +60,24 @@ export function AuthScreen({
     if (!apkOauth || typeof window === "undefined") return;
     let cancelled = false;
     let redirected = false;
+    let hintTimer: ReturnType<typeof setTimeout> | undefined;
 
     function jumpToApp(url: string) {
       if (cancelled || redirected) return;
       redirected = true;
       setApkReturnUrl(url);
       window.location.replace(url);
+      hintTimer = setTimeout(() => {
+        if (!cancelled && document.visibilityState === "visible") {
+          setApkAutoJumpWaitingTap(true);
+        }
+      }, 900);
     }
 
-    const hashStr = (initialHash || window.location.hash || "").replace(/^#/, "");
+    const hashStr = (window.location.hash || initialHash || capturedPageHash || "").replace(
+      /^#/,
+      "",
+    );
     const hashParams = new URLSearchParams(hashStr);
     const searchParams = new URLSearchParams(window.location.search);
     const errDesc =
@@ -60,7 +87,10 @@ export function AuthScreen({
       searchParams.get("error");
     if (errDesc) {
       jumpToApp(`chorepot://oauth-callback?error=${encodeURIComponent(errDesc)}`);
-      return;
+      return () => {
+        cancelled = true;
+        if (hintTimer) clearTimeout(hintTimer);
+      };
     }
 
     const hashAccess = hashParams.get("access_token") ?? searchParams.get("access_token");
@@ -68,7 +98,10 @@ export function AuthScreen({
     if (hashAccess && hashRefresh) {
       const p = new URLSearchParams({ access_token: hashAccess, refresh_token: hashRefresh });
       jumpToApp(`chorepot://oauth-callback#${p.toString()}`);
-      return;
+      return () => {
+        cancelled = true;
+        if (hintTimer) clearTimeout(hintTimer);
+      };
     }
 
     void supabase.auth.getSession().then(({ data }) => {
@@ -94,6 +127,7 @@ export function AuthScreen({
 
     return () => {
       cancelled = true;
+      if (hintTimer) clearTimeout(hintTimer);
       sub.subscription.unsubscribe();
     };
   }, [apkOauth, initialHash]);
@@ -104,16 +138,27 @@ export function AuthScreen({
     if (apkOauth || typeof window === "undefined") return;
     let active = true;
 
-    async function applyApkSessionFromHash() {
-      const raw = (window.location.hash || "").replace(/^#/, "");
-      if (!raw) return;
+    async function applyApkSessionFromHash(allowCapturedFallback: boolean) {
+      const fallbackHash = allowCapturedFallback ? consumeCapturedApkHash() : "";
+      const raw = (window.location.hash || fallbackHash || "").replace(/^#/, "");
       const params = new URLSearchParams(raw);
       const accessToken = params.get("apk_access_token");
       const refreshToken = params.get("apk_refresh_token");
-      if (!accessToken || !refreshToken) return;
+      if (!accessToken || !refreshToken) {
+        if (allowCapturedFallback && !apkOauthError) {
+          const { data } = await supabase.auth.getUser();
+          if (active && data.user) {
+            void navigate({ to: "/dashboard", replace: true });
+          }
+        }
+        return;
+      }
 
+      if (active) {
+        setCompletingApkLogin(true);
+        setBusy(true);
+      }
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
-      setBusy(true);
       try {
         const { error } = await supabase.auth.setSession({
           access_token: accessToken,
@@ -123,6 +168,7 @@ export function AuthScreen({
         if (active) void navigate({ to: "/dashboard", replace: true });
       } catch (err) {
         if (active) {
+          setCompletingApkLogin(false);
           toast.error(err instanceof Error ? err.message : "Could not complete sign-in");
         }
       } finally {
@@ -130,14 +176,14 @@ export function AuthScreen({
       }
     }
 
-    void applyApkSessionFromHash();
-    const onHash = () => void applyApkSessionFromHash();
+    void applyApkSessionFromHash(true);
+    const onHash = () => void applyApkSessionFromHash(false);
     window.addEventListener("hashchange", onHash);
     return () => {
       active = false;
       window.removeEventListener("hashchange", onHash);
     };
-  }, [apkOauth, navigate]);
+  }, [apkOauth, apkOauthError, navigate]);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
@@ -158,16 +204,16 @@ export function AuthScreen({
           password,
           options: {
             data: { name: String(f.get("name")) },
-            emailRedirectTo: window.location.origin,
+            emailRedirectTo: `${window.location.origin}/dashboard`,
           },
         });
         if (error) throw error;
-        if (data.session) navigate({ to: "/dashboard" });
+        if (data.session) void navigate({ to: "/dashboard", replace: true });
         else setSent(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        navigate({ to: "/dashboard" });
+        void navigate({ to: "/dashboard", replace: true });
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Please try again");
@@ -184,17 +230,17 @@ export function AuthScreen({
       redirect_uri: redirectUri,
     });
     if (r.error) toast.error(r.error.message);
-    else if (!r.redirected) navigate({ to: "/dashboard" });
+    else if (!r.redirected) void navigate({ to: "/dashboard", replace: true });
   }
   if (apkOauth) {
     return (
       <main className="auth-page">
-        <Link to="/" className="brand">
+        <div className="brand">
           <span className="brand-mark">
             <Sprout />
           </span>
           chorepot<span className="brand-dot">.</span>
-        </Link>
+        </div>
         <div className="auth-layout">
           <div className="auth-art">
             <img src="/piggy-bank.png" alt="A cheerful piggy bank and gold coins" />
@@ -209,12 +255,14 @@ export function AuthScreen({
             <h2>{apkReturnUrl ? "Sign-in complete!" : "Finishing sign-in…"}</h2>
             <p>
               {apkReturnUrl
-                ? "Opening Chorepot now. Tap below if your phone doesn’t switch back automatically."
+                ? apkAutoJumpWaitingTap
+                  ? "Tap the button below to return straight to your Chorepot app."
+                  : "Opening Chorepot now. Tap below if your phone doesn’t switch back automatically."
                 : "Connecting your account safely back to the Chorepot app."}
             </p>
             {apkReturnUrl && (
-              <Button asChild className="mt-4 w-full">
-                <a href={apkReturnUrl}>Return to Chorepot app</a>
+              <Button asChild size="lg" className="mt-4 w-full">
+                <a href={apkReturnUrl}>Open Chorepot app</a>
               </Button>
             )}
           </section>
@@ -222,14 +270,50 @@ export function AuthScreen({
       </main>
     );
   }
+  if (completingApkLogin) {
+    return (
+      <main className="auth-page">
+        <div className="brand">
+          <span className="brand-mark">
+            <Sprout />
+          </span>
+          chorepot<span className="brand-dot">.</span>
+        </div>
+        <div className="auth-layout">
+          <div className="auth-art">
+            <img src="/piggy-bank.png" alt="A cheerful piggy bank and gold coins" />
+            <h1>
+              Little chores.
+              <br />
+              Big possibilities.
+            </h1>
+            <p>A little better, together.</p>
+          </div>
+          <section className="auth-form">
+            <h2>Signing you in…</h2>
+            <p>Taking you straight to your family dashboard.</p>
+          </section>
+        </div>
+      </main>
+    );
+  }
   return (
     <main className="auth-page">
-      <Link to="/" className="brand">
-        <span className="brand-mark">
-          <Sprout />
-        </span>
-        chorepot<span className="brand-dot">.</span>
-      </Link>
+      {inApk ? (
+        <div className="brand">
+          <span className="brand-mark">
+            <Sprout />
+          </span>
+          chorepot<span className="brand-dot">.</span>
+        </div>
+      ) : (
+        <Link to="/" className="brand">
+          <span className="brand-mark">
+            <Sprout />
+          </span>
+          chorepot<span className="brand-dot">.</span>
+        </Link>
+      )}
       <div className="auth-layout">
         <div className="auth-art">
           <img src="/piggy-bank.png" alt="A cheerful piggy bank and gold coins" />
@@ -241,10 +325,12 @@ export function AuthScreen({
           <p>A little better, together.</p>
         </div>
         <section className="auth-form">
-          <Link className="back-link" to="/">
-            <ArrowLeft size={16} />
-            Back to family space
-          </Link>
+          {!inApk && (
+            <Link className="back-link" to="/">
+              <ArrowLeft size={16} />
+              Back to family space
+            </Link>
+          )}
           <h2>
             {sent
               ? "Check your inbox 💌"

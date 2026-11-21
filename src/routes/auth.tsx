@@ -1,15 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AuthScreen } from "@/features/family/auth-screen";
 
+function asSearchString(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return undefined;
+}
+
 export const Route = createFileRoute("/auth")({
   validateSearch: (
     s: Record<string, unknown>,
-  ): { code?: string; signup?: string; apk_oauth?: string; apk_oauth_error?: string } => ({
-    ...(typeof s["code"] === "string" ? { code: s["code"] } : {}),
-    ...(typeof s["signup"] === "string" ? { signup: s["signup"] } : {}),
-    ...(typeof s["apk_oauth"] === "string" ? { apk_oauth: s["apk_oauth"] } : {}),
-    ...(typeof s["apk_oauth_error"] === "string" ? { apk_oauth_error: s["apk_oauth_error"] } : {}),
-  }),
+  ): { code?: string; signup?: string; apk_oauth?: string; apk_oauth_error?: string } => {
+    const code = asSearchString(s["code"]);
+    const signup = asSearchString(s["signup"]);
+    const apkOauth = asSearchString(s["apk_oauth"]);
+    const apkOauthError = asSearchString(s["apk_oauth_error"]);
+    return {
+      ...(code !== undefined ? { code } : {}),
+      ...(signup !== undefined ? { signup } : {}),
+      ...(apkOauth !== undefined ? { apk_oauth: apkOauth } : {}),
+      ...(apkOauthError !== undefined ? { apk_oauth_error: apkOauthError } : {}),
+    };
+  },
   head: () => ({
     meta: [
       { title: "Join your family | Chorepot" },

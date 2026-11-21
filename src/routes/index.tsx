@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { LandingPage } from "@/features/family/landing-page";
+import { isRunningInApk } from "@/features/family/model";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
@@ -29,10 +30,27 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const navigate = useNavigate();
+  const [inApk, setInApk] = useState(false);
+
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) navigate({ to: "/dashboard" });
+    const apk = isRunningInApk();
+    setInApk(apk);
+    void supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        void navigate({ to: "/dashboard", replace: true });
+      } else if (apk) {
+        void navigate({ to: "/auth", replace: true });
+      }
     });
   }, [navigate]);
+
+  if (inApk) {
+    return (
+      <main className="auth-page flex items-center justify-center">
+        <p className="text-sm font-semibold text-muted-foreground">Opening Chorepot…</p>
+      </main>
+    );
+  }
+
   return <LandingPage />;
 }

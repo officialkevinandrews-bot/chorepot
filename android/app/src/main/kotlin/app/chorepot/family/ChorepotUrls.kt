@@ -14,6 +14,7 @@ enum class NavigationTarget {
 
 object ChorepotUrls {
     const val BASE_URL = "https://tidy-tasks-pocket-pals.lovable.app"
+    const val START_URL = "$BASE_URL/dashboard"
     const val APP_HOST = "tidy-tasks-pocket-pals.lovable.app"
     const val CUSTOM_UA_TAG = "ChorepotAPK"
     const val OAUTH_CALLBACK_SCHEME = "chorepot"

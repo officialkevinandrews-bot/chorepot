@@ -63,8 +63,8 @@ export function tryNativeAndroidShare(title: string, text: string, url: string):
 }
 
 export const ANDROID_APK_PATH = "/downloads/chorepot.apk";
-export const ANDROID_APK_FILENAME = "Chorepot-v1.0.1.apk";
-export const ANDROID_APK_VERSION = "1.0.1";
+export const ANDROID_APK_FILENAME = "Chorepot-v1.0.2.apk";
+export const ANDROID_APK_VERSION = "1.0.2";
 
 export function androidApkDownloadUrl(origin?: string): string {
   const base =
