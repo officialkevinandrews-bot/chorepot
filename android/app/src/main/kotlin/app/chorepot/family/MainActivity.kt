@@ -474,7 +474,7 @@ private fun LoadingSplashOverlay(progress: Int) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Image(
-                painter = painterResource(id = R.mipmap.ic_launcher),
+                painter = painterResource(id = R.drawable.chorepot_logo),
                 contentDescription = "Chorepot icon",
                 modifier = Modifier
                     .size(84.dp)
@@ -520,7 +520,7 @@ private fun OfflineRetryOverlay(onRetry: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Image(
-                painter = painterResource(id = R.mipmap.ic_launcher),
+                painter = painterResource(id = R.drawable.chorepot_logo),
                 contentDescription = "Chorepot icon",
                 modifier = Modifier
                     .size(72.dp)
