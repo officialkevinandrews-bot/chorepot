@@ -64,7 +64,9 @@ import {
   getChoreCategoryInfo,
   getChorePriorityInfo,
   resolveChoreCategory,
+  resolveChoreIconKey,
   resolveChorePriority,
+  choreEmojiValueForKey,
   isRunningInApk,
   tryNativeAndroidShare,
   money,
@@ -96,6 +98,7 @@ import {
   type StarterChoreTemplate,
 } from "./model";
 import { AndroidDownloadCard } from "./android-download-card";
+import { ChoreIcon, ChoreIconBox, ChoreIconPicker } from "./chore-icon";
 
 const navigation = [
   { name: "Overview", short: "Overview", icon: LayoutDashboard },
@@ -103,71 +106,6 @@ const navigation = [
   { name: "Weekly schedule", short: "Schedule", icon: CalendarDays },
   { name: "Pocket money", short: "Money", icon: Wallet },
   { name: "Our family", short: "Family", icon: Users },
-];
-
-const choreEmojis = [
-  "🧹",
-  "🛏️",
-  "📚",
-  "🐈",
-  "🐕",
-  "🍽️",
-  "♻️",
-  "🪴",
-  "🚙",
-  "🧺",
-  "🦷",
-  "🎹",
-  "🎒",
-  "🧸",
-  "👕",
-  "🖥️",
-  "🥪",
-  "🛌",
-  "✨",
-  "👞",
-  "🗑️",
-  "📦",
-  "🚿",
-  "🪮",
-  "👟",
-  "🫧",
-  "🥣",
-  "🧤",
-  "🪜",
-  "🪣",
-  "🪶",
-  "🪞",
-  "🛋️",
-  "🧥",
-  "👚",
-  "🧦",
-  "🚪",
-  "💡",
-  "🌿",
-  "📬",
-  "🛍️",
-  "🍎",
-  "🛴",
-  "🌻",
-  "🌱",
-  "🚗",
-  "🚲",
-  "⚽",
-  "🔢",
-  "📖",
-  "✏️",
-  "🥕",
-  "🥞",
-  "🤝",
-  "🧩",
-  "📱",
-  "💌",
-  "📝",
-  "🧁",
-  "💻",
-  "🏊",
-  "📞",
 ];
 
 const goalEmojis = ["🧱", "🎨", "🎮", "🚲", "🧸", "⚽", "🎧", "📚", "🛹"];
@@ -478,7 +416,7 @@ export function Dashboard({
       setChoreTitleState("");
       setChoreDescState("");
       setChoreChildIdState(children[0]?.id ?? "");
-      setChoreEmojiState("🧹");
+      setChoreEmojiState(choreEmojiValueForKey("full-bedroom-tidy"));
       setChoreCategoryState(categoryFilter === "all" ? "self_care" : categoryFilter);
       setChorePriorityState(2);
       setChoreFrequency("weekly");
@@ -491,7 +429,8 @@ export function Dashboard({
       setChoreTitleState(item.title);
       setChoreDescState(item.description ?? "");
       setChoreChildIdState(item.childId);
-      setChoreEmojiState(item.emoji);
+      const matchedIconKey = resolveChoreIconKey(item);
+      setChoreEmojiState(matchedIconKey ? choreEmojiValueForKey(matchedIconKey) : item.emoji);
       setChoreCategoryState(resolveChoreCategory(item));
       setChorePriorityState(resolveChorePriority(item));
       setChoreFrequency(item.frequency ?? "weekly");
@@ -551,7 +490,7 @@ export function Dashboard({
   function applyChoreTemplate(tpl: StarterChoreTemplate) {
     setChoreTitleState(tpl.title);
     setChoreDescState(tpl.description);
-    setChoreEmojiState(tpl.emoji);
+    setChoreEmojiState(choreEmojiValueForKey(tpl.key));
     setChoreCategoryState(tpl.choreCategory);
     setChorePriorityState(resolveChorePriority(tpl));
     setChoreFrequency(tpl.frequency);
@@ -933,7 +872,7 @@ export function Dashboard({
     const prioInfo = getChorePriorityInfo(resolveChorePriority(c));
     return (
       <div className="chore-row" key={c.id}>
-        <div className="chore-emoji">{c.emoji}</div>
+        <ChoreIconBox chore={c} />
         <div className="min-w-0 flex-1">
           <div className="font-semibold">{c.title}</div>
           {c.description && (
@@ -1430,7 +1369,7 @@ export function Dashboard({
                           return (
                             <div className="approval-card" key={c.id}>
                               <div className="approval-main">
-                                <div className="chore-emoji">{c.emoji}</div>
+                                <ChoreIconBox chore={c} />
                                 <div className="flex-1">
                                   <strong>{c.title}</strong>
                                   <div className="approval-detail">
@@ -2301,7 +2240,7 @@ export function Dashboard({
                         return (
                           <div className="idea-card" key={tpl.key}>
                             <div className="flex items-start gap-2.5">
-                              <span className="text-2xl leading-none">{tpl.emoji}</span>
+                              <ChoreIcon chore={tpl} className="idea-chore-icon" />
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <strong className="text-sm">{tpl.title}</strong>
@@ -2396,44 +2335,32 @@ export function Dashboard({
                         maxLength={200}
                       />
                     </label>
-                    <div className="form-pair">
-                      <label>
-                        Little helper
-                        <select
-                          name="childId"
-                          value={choreChildIdState}
-                          onChange={(e) => setChoreChildIdState(e.target.value)}
-                          disabled={
-                            modal === "edit_chore" &&
-                            selected !== null &&
-                            "status" in selected &&
-                            selected.status === "pending"
-                          }
-                          required
-                        >
-                          {children.map((m) => (
-                            <option value={m.id} key={m.id}>
-                              {m.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        Chore icon
-                        <select
-                          name="emoji"
-                          value={choreEmojiState}
-                          onChange={(e) => setChoreEmojiState(e.target.value)}
-                        >
-                          {(choreEmojis.includes(choreEmojiState)
-                            ? choreEmojis
-                            : [choreEmojiState, ...choreEmojis]
-                          ).map((x) => (
-                            <option key={x}>{x}</option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
+                    <label>
+                      Little helper
+                      <select
+                        name="childId"
+                        value={choreChildIdState}
+                        onChange={(e) => setChoreChildIdState(e.target.value)}
+                        disabled={
+                          modal === "edit_chore" &&
+                          selected !== null &&
+                          "status" in selected &&
+                          selected.status === "pending"
+                        }
+                        required
+                      >
+                        {children.map((m) => (
+                          <option value={m.id} key={m.id}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <ChoreIconPicker
+                      value={choreEmojiState}
+                      onChange={setChoreEmojiState}
+                      defaultCategory={choreCategoryState}
+                    />
 
                     <label>
                       Schedule frequency
@@ -2866,7 +2793,7 @@ export function Dashboard({
                             <div className="budget-split-row" key={ch.id}>
                               <div className="min-w-[140px] flex-1">
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  <span>{ch.emoji}</span>
+                                  <ChoreIcon chore={ch} className="split-chore-icon" />
                                   <strong className="text-xs">{ch.title}</strong>
                                   {alloc.lockType === "pending" && (
                                     <span className="chore-priority-pill">
@@ -3076,7 +3003,8 @@ export function Dashboard({
             {modal === "review" && selected && "value" in selected && (
               <>
                 <div className="review-title">
-                  {selected.emoji} {selected.title}
+                  <ChoreIcon chore={selected} className="review-chore-icon" />
+                  <span>{selected.title}</span>
                   <strong>{money(selected.value)}</strong>
                 </div>
                 {proofUrl ? (

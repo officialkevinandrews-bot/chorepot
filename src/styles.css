@@ -1130,6 +1130,98 @@ h3 {
   justify-content: center;
   flex-shrink: 0;
 }
+.chore-emoji.has-icon {
+  background: transparent;
+  border: none;
+  padding: 0;
+  height: 52px;
+  width: 52px;
+}
+.chore-icon-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.chore-icon-emoji-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.idea-chore-icon,
+.starter-chore-icon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+.split-chore-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.review-chore-icon {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+}
+.chore-icon-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chore-icon-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.chore-icon-selected-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 240px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 999px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+}
+.chore-icon-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 8px;
+  max-height: 196px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--background);
+}
+.chore-icon-pick-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  padding: 4px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background: var(--card);
+  cursor: pointer;
+  transition:
+    transform 0.12s,
+    border-color 0.12s,
+    background 0.12s;
+}
+.chore-icon-pick-btn:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+}
+.chore-icon-pick-btn.active {
+  border-color: var(--primary);
+  background: var(--mint);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 22%, transparent);
+}
 .approval-main strong {
   font-size: 16px;
 }
@@ -1214,6 +1306,12 @@ h3 {
   font-size: 24px;
   border: 1px solid var(--border);
   background: var(--muted);
+}
+.chore-row .chore-emoji.has-icon {
+  height: 48px;
+  width: 48px;
+  border: none;
+  background: transparent;
 }
 .chore-row .money-tag {
   margin: 0 4px;

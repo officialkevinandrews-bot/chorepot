@@ -1412,6 +1412,105 @@ export const STARTER_CHORES: StarterChoreTemplate[] = [
   },
 ];
 
+export const CHORE_ICON_KEYS = STARTER_CHORES.map((item) => item.key);
+const CHORE_ICON_KEY_SET = new Set(CHORE_ICON_KEYS);
+const STARTER_BY_KEY = new Map(STARTER_CHORES.map((item) => [item.key, item]));
+const STARTER_KEY_BY_TITLE = new Map(
+  STARTER_CHORES.map((item) => [item.title.trim().toLowerCase(), item.key]),
+);
+const CHORE_TITLE_ICON_ALIASES: Record<string, string> = {
+  "tidy your bedroom": "full-bedroom-tidy",
+  "finish english homework": "english-homework",
+  "feed luna": "feed-pets",
+  "set the dinner table": "set-dinner-table",
+  "put the recycling out": "sort-recycling",
+  "water the plants": "water-houseplants",
+  "help wash the car": "wash-car",
+};
+const CHORE_EMOJI_FALLBACK_KEY: Record<string, string> = (() => {
+  const map: Record<string, string> = {};
+  for (const item of STARTER_CHORES) {
+    if (!map[item.emoji]) {
+      map[item.emoji] = item.key;
+    }
+  }
+  // Prefer the most iconic default when multiple starter chores share an emoji
+  map["🧹"] = "full-bedroom-tidy";
+  map["🗑️"] = "take-kitchen-rubbish";
+  map["✨"] = "wipe-kitchen-counters";
+  map["🧺"] = "dirty-clothes-basket";
+  map["📦"] = "flatten-cardboard";
+  map["🥪"] = "make-own-lunch";
+  map["🪮"] = "morning-ready-on-time";
+  return map;
+})();
+
+export function choreIconUrl(key: string): string {
+  return `/chore-icons/${key}.png`;
+}
+
+export function choreEmojiValueForKey(key: string): string {
+  return `icon:${key}`;
+}
+
+export function resolveChoreIconKey(chore: {
+  key?: string;
+  title?: string;
+  emoji?: string;
+}): string | undefined {
+  if (chore.key && CHORE_ICON_KEY_SET.has(chore.key)) {
+    return chore.key;
+  }
+
+  const rawEmoji = chore.emoji?.trim();
+  if (rawEmoji) {
+    if (rawEmoji.startsWith("icon:")) {
+      const key = rawEmoji.slice(5);
+      if (CHORE_ICON_KEY_SET.has(key)) return key;
+    }
+    const pathMatch = /^\/chore-icons\/([a-z0-9-]+)\.png$/i.exec(rawEmoji);
+    if (pathMatch?.[1] && CHORE_ICON_KEY_SET.has(pathMatch[1])) {
+      return pathMatch[1];
+    }
+  }
+
+  const normalizedTitle = chore.title?.trim().toLowerCase();
+  if (normalizedTitle) {
+    const exactKey = STARTER_KEY_BY_TITLE.get(normalizedTitle);
+    if (exactKey) return exactKey;
+    const aliasKey = CHORE_TITLE_ICON_ALIASES[normalizedTitle];
+    if (aliasKey && CHORE_ICON_KEY_SET.has(aliasKey)) return aliasKey;
+  }
+
+  if (rawEmoji && CHORE_EMOJI_FALLBACK_KEY[rawEmoji]) {
+    return CHORE_EMOJI_FALLBACK_KEY[rawEmoji];
+  }
+
+  return undefined;
+}
+
+export function resolveChoreIconSrc(chore: {
+  key?: string;
+  title?: string;
+  emoji?: string;
+}): string | undefined {
+  const key = resolveChoreIconKey(chore);
+  return key ? choreIconUrl(key) : undefined;
+}
+
+export function resolveChoreFallbackEmoji(chore: {
+  key?: string;
+  title?: string;
+  emoji?: string;
+}): string {
+  const rawEmoji = chore.emoji?.trim() ?? "";
+  if (rawEmoji && !rawEmoji.startsWith("icon:") && !rawEmoji.startsWith("/chore-icons/")) {
+    return rawEmoji;
+  }
+  const key = resolveChoreIconKey(chore);
+  return (key ? STARTER_BY_KEY.get(key)?.emoji : undefined) ?? "🧹";
+}
+
 export type Chore = {
   id: string;
   title: string;

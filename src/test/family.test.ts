@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import {
   money,
   demoAction,
@@ -13,13 +15,18 @@ import {
   choreScheduledDaysCount,
   choreWeeklyMax,
   STARTER_CHORES,
+  CHORE_ICON_KEYS,
   CHORE_CATEGORIES,
   CHORE_PRIORITIES,
   calculateChildBudgetSplit,
   childWeeklyBonusInfo,
   currentWeekKey,
   choreSplitWeeklyWeight,
+  choreEmojiValueForKey,
   resolveChoreCategory,
+  resolveChoreFallbackEmoji,
+  resolveChoreIconKey,
+  resolveChoreIconSrc,
   resolveChorePriority,
   getChoreCategoryInfo,
   CHILD_THEMES,
@@ -695,5 +702,36 @@ describe("4-star priority system & exact-1p weekly budget splitter", () => {
     expect(bonusInfo.hasBonus).toBe(true);
     expect(bonusInfo.bonusAmount).toBe(200);
     expect(bonusInfo.baseBudget).toBe(500);
+  });
+});
+
+describe("Custom chore icons", () => {
+  it("provides 80 sliced PNG assets matching every built-in starter chore", () => {
+    expect(STARTER_CHORES).toHaveLength(80);
+    expect(CHORE_ICON_KEYS).toHaveLength(80);
+    const iconsDir = path.resolve(process.cwd(), "public/chore-icons");
+
+    for (const tpl of STARTER_CHORES) {
+      expect(resolveChoreIconKey(tpl)).toBe(tpl.key);
+      expect(resolveChoreIconSrc(tpl)).toBe(`/chore-icons/${tpl.key}.png`);
+      expect(fs.existsSync(path.join(iconsDir, `${tpl.key}.png`))).toBe(true);
+    }
+  });
+
+  it("maps demo chores, icon:<key> selections, and fallback emojis cleanly", () => {
+    for (const chore of demo.state.chores) {
+      expect(resolveChoreIconSrc(chore)).toMatch(/^\/chore-icons\/[a-z0-9-]+\.png$/);
+    }
+
+    const custom = {
+      title: "Bake cookies for Nana",
+      emoji: choreEmojiValueForKey("bake-with-parent"),
+    };
+    expect(resolveChoreIconSrc(custom)).toBe("/chore-icons/bake-with-parent.png");
+    expect(resolveChoreFallbackEmoji(custom)).toBe("🧁");
+
+    const unknownEmoji = { title: "Practice violin", emoji: "🎻" };
+    expect(resolveChoreIconSrc(unknownEmoji)).toBeUndefined();
+    expect(resolveChoreFallbackEmoji(unknownEmoji)).toBe("🎻");
   });
 });

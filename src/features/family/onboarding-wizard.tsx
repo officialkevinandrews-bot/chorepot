@@ -24,10 +24,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { executeFamilyAction, fetchAuthenticatedFamily } from "./family-client";
 import { AndroidDownloadCard } from "./android-download-card";
+import { ChoreIcon } from "./chore-icon";
 import {
   CHILD_THEMES,
   CHORE_CATEGORIES,
   STARTER_CHORES,
+  choreEmojiValueForKey,
   days,
   fullDays,
   money,
@@ -339,7 +341,7 @@ export function OnboardingWizard({
           starterChores.push({
             title: template.title,
             description: template.description,
-            emoji: template.emoji,
+            emoji: choreEmojiValueForKey(template.key),
             value: pence,
             frequency: template.frequency,
             choreCategory: template.choreCategory,
@@ -909,7 +911,7 @@ export function OnboardingWizard({
                                 }))
                               }
                             />
-                            <span className="text-xl">{tpl.emoji}</span>
+                            <ChoreIcon chore={tpl} className="starter-chore-icon" />
                             <div className="min-w-0 flex-1">
                               <div className="font-semibold text-xs">{tpl.title}</div>
                               <div className="text-[11px] text-muted-foreground">
